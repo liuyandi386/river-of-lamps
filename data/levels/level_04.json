@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "id": "level_04",
+  "name": { "zh": "汇流" },
+  "chapter": "combo",
+  "grid": { "w": 8, "h": 8 },
+  "tick_budget": 24,
+  "max_components": 10,
+  "preset": [
+    { "type": "source", "pos": [0, 4], "params": { "mode": "pulse", "pulse_at_tick": 0 } },
+    { "type": "source", "pos": [5, 7], "params": { "mode": "pulse", "pulse_at_tick": 0 } },
+    { "type": "and", "pos": [5, 4], "params": {} }
+  ],
+  "available": ["wire"],
+  "targets": [
+    { "id": "t1", "pos": [6, 4], "expect": [1], "start_tick": 4 }
+  ],
+  "interference": [],
+  "hint": {
+    "zh": "与门要两个输入同时为高才亮。两条灯槽都要 4 拍，让两个脉冲同一拍到达。"
+  },
+  "reference_finish": 4,
+  "star_thresholds": { "three": 4, "two": 6, "one": 9 },
+  "reference_solution": {
+    "wires": [
+      [[1, 4], [2, 4], [3, 4], [4, 4], [5, 4]],
+      [[6, 7], [6, 6], [6, 5], [5, 5], [5, 4]]
+    ]
+  }
+}

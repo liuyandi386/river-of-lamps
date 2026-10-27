@@ -1,0 +1,13 @@
+# 构建产物
+build/
+build_clean/
+dist/
+
+# Python 生成脚本的缓存
+__pycache__/
+*.pyc
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db

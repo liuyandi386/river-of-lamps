@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "elements": [
+    {
+      "id": "source",
+      "batch": 1,
+      "name": { "zh": "信号源" },
+      "footprint": [[0, 0]],
+      "ports": { "in": [], "out": ["E"] },
+      "delay": 0,
+      "params": { "mode": ["high", "low", "pulse"], "pulse_at_tick": 0 },
+      "rule": "source_rule"
+    },
+    {
+      "id": "wire",
+      "batch": 1,
+      "name": { "zh": "灯槽" },
+      "footprint": [[0, 0]],
+      "ports": { "in": ["flow"], "out": ["flow"] },
+      "delay": 1,
+      "params": {},
+      "rule": "wire_rule"
+    },
+    {
+      "id": "and",
+      "batch": 1,
+      "name": { "zh": "与门" },
+      "footprint": [[0, 0]],
+      "ports": { "in": ["W", "S"], "out": ["E"] },
+      "delay": 0,
+      "params": {},
+      "rule": "gate_rule"
+    },
+    {
+      "id": "or",
+      "batch": 1,
+      "name": { "zh": "或门" },
+      "footprint": [[0, 0]],
+      "ports": { "in": ["W", "S"], "out": ["E"] },
+      "delay": 0,
+      "params": {},
+      "rule": "gate_rule"
+    },
+    {
+      "id": "not",
+      "batch": 1,
+      "name": { "zh": "非门" },
+      "footprint": [[0, 0]],
+      "ports": { "in": ["W"], "out": ["E"] },
+      "delay": 0,
+      "params": {},
+      "rule": "gate_rule"
+    },
+    {
+      "id": "target",
+      "batch": 1,
+      "name": { "zh": "目标端口" },
+      "footprint": [[0, 0]],
+      "ports": { "in": ["W"], "out": [] },
+      "delay": 0,
+      "params": { "expect": [], "start_tick": 0 },
+      "rule": "target_rule"
+    }
+  ]
+}

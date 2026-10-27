@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "level_03",
+  "name": { "zh": "第一盏灯" },
+  "chapter": "tutorial",
+  "grid": { "w": 8, "h": 8 },
+  "tick_budget": 24,
+  "max_components": 10,
+  "preset": [
+    { "type": "source", "pos": [0, 3], "params": { "mode": "pulse", "pulse_at_tick": 0 } },
+    { "type": "not", "pos": [4, 3], "params": {} }
+  ],
+  "available": ["wire"],
+  "targets": [
+    { "id": "t1", "pos": [5, 3], "expect": [0, 1], "start_tick": 3 }
+  ],
+  "interference": [],
+  "hint": {
+    "zh": "非门会把高变低、低变高。脉冲经过非门时，目标会先看到“灭”，下一拍才看到“亮”。"
+  },
+  "reference_finish": 4,
+  "star_thresholds": { "three": 4, "two": 6, "one": 9 },
+  "reference_solution": {
+    "wires": [
+      [[1, 3], [2, 3], [3, 3], [4, 3]]
+    ]
+  }
+}

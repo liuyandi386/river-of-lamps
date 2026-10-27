@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "id": "level_01",
+  "name": { "zh": "细流" },
+  "chapter": "tutorial",
+  "grid": { "w": 8, "h": 8 },
+  "tick_budget": 24,
+  "max_components": 10,
+  "teach": {
+    "zh": "灯槽每格延迟 1 拍。源会一直亮；从源开始铺灯槽，铺够 6 格，目标才会在第 6 拍看到亮。"
+  },
+  "preset": [
+    { "type": "source", "pos": [0, 2], "params": { "mode": "high" } }
+  ],
+  "available": ["wire"],
+  "targets": [
+    { "id": "t1", "pos": [7, 2], "expect": [1], "start_tick": 6 }
+  ],
+  "interference": [],
+  "hint": {
+    "zh": "从信号源按住左键，沿网格拖出灯槽。灯槽每格延迟 1 拍，数一数信号要走几拍。"
+  },
+  "reference_finish": 6,
+  "star_thresholds": { "three": 6, "two": 8, "one": 12 },
+  "reference_solution": {
+    "wires": [
+      [[1, 2], [2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 2]]
+    ]
+  }
+}

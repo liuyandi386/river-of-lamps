@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "id": "level_02",
+  "name": { "zh": "倒影" },
+  "chapter": "tutorial",
+  "grid": { "w": 8, "h": 8 },
+  "tick_budget": 24,
+  "max_components": 10,
+  "teach": {
+    "zh": "非门会把高变成低、低变成高。源只亮 1 拍；把它送进非门后，目标会先看到灭，下一拍才亮。先把源接到非门左侧。"
+  },
+  "preset": [
+    { "type": "source", "pos": [0, 2], "params": { "mode": "pulse", "pulse_at_tick": 0 } },
+    { "type": "not", "pos": [3, 2], "params": {} }
+  ],
+  "available": ["wire"],
+  "targets": [
+    { "id": "t1", "pos": [4, 2], "expect": [0, 1], "start_tick": 2 }
+  ],
+  "interference": [],
+  "hint": {
+    "zh": "从源向右铺两格到非门的左侧。第 2 拍非门会灭，第 3 拍再亮；绕远路会让它晚 2 拍。"
+  },
+  "reference_finish": 3,
+  "star_thresholds": { "three": 3, "two": 5, "one": 9 },
+  "reference_solution": {
+    "wires": [
+      [[1, 2], [2, 2], [3, 2]]
+    ]
+  }
+}

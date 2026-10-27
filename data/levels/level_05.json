@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "id": "level_05",
+  "name": { "zh": "分岔" },
+  "chapter": "combo",
+  "grid": { "w": 8, "h": 8 },
+  "tick_budget": 24,
+  "max_components": 10,
+  "preset": [
+    { "type": "source", "pos": [0, 4], "params": { "mode": "pulse", "pulse_at_tick": 0 } },
+    { "type": "source", "pos": [5, 7], "params": { "mode": "pulse", "pulse_at_tick": 0 } },
+    { "type": "or", "pos": [5, 4], "params": {} }
+  ],
+  "available": ["wire"],
+  "targets": [
+    { "id": "t1", "pos": [6, 4], "expect": [1, 0, 1], "start_tick": 4 }
+  ],
+  "interference": [],
+  "hint": {
+    "zh": "或门只要有一路亮就亮。让左边那路 4 拍到，下面那路 6 拍到：目标会看到亮、灭、亮。"
+  },
+  "reference_finish": 6,
+  "star_thresholds": { "three": 6, "two": 8, "one": 12 },
+  "reference_solution": {
+    "wires": [
+      [[1, 4], [2, 4], [3, 4], [4, 4], [5, 4]],
+      [[6, 7], [7, 7], [7, 6], [7, 5], [6, 5], [5, 5], [5, 4]]
+    ]
+  }
+}

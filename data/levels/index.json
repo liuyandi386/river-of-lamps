@@ -1,0 +1,9 @@
+{
+  "levels": [
+    { "id": "level_01", "name": "细流" },
+    { "id": "level_02", "name": "倒影" },
+    { "id": "level_03", "name": "第一盏灯" },
+    { "id": "level_04", "name": "汇流" },
+    { "id": "level_05", "name": "分岔" }
+  ]
+}
