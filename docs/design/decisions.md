@@ -181,3 +181,127 @@
   关卡设计避免无意多驱动；若以后要改成“多驱动报错”，需单独决策。
 - 有环门网络才迭代到不动点（上限 16）；灯槽会切断同拍环，所以经过灯槽的环表现为逐拍环形振荡，不是同拍组合环。
   当前 5 关没有门级组合环。
+
+
+## C22 UI 技术栈与极简扁平主题
+
+2026-10-28：UI 改为 **Dear ImGui 1.89.9 + ImGui-SFML 2.6.1**（源码内置、MIT、无运行时依赖），
+不再手写全部控件绘制。选型理由：
+
+- 与现有 SFML 2.6.1 / MinGW / CMake 兼容，`build_cpp.bat` 仍然一键构建；
+- 体量小、可随源码编译，静态链接后仍是单 exe；
+- 字体图集、文本测量、抗锯齿绘制、draw list 足够做极简扁平 UI；
+- 棋盘、灯槽、波形等游戏特定视觉仍由 SFML 绘制，ImGui 只负责界面层，避免重写玩法/输入判定。
+
+主题：低饱和深蓝底色 + 金色主强调 + 青绿输入/成功 + 珊瑚红错误；面板使用纯色块 + 1px 描边，
+圆角统一 4/8/14，间距 4/8/12/16/24/32，字号 9–34 分级；不使用渐变、重阴影、发光或粒子堆叠。
+按钮/卡片 hover 用底色+描边，按下下沉 1px；界面切换淡入，星级弹出，棋盘灯槽短脉冲。
+所有动效只在 App/BoardView 绘制层，不改变 Simulator/TickFrame 时序。
+
+交互仍沿用原有 SFML 命中层（`Button.rect` / BoardView），ImGui 不接管鼠标，避免改变玩法输入。
+
+## C23 正文字体：Sarasa UI SC 与按物理像素加载
+
+2026-10-28：主字体从 Noto Sans SC 更换为 **Sarasa UI SC（更纱黑体 UI SC）**，SIL OFL 1.1。
+选择理由：
+
+- 有 Regular / SemiBold / Bold 三档，可直接覆盖正文、标题、展示字，不需要合成粗体；
+- 拉丁采用 Inter，CJK 采用思源黑体，字形和字距更适合 9–20px 的极简 UI；
+- Source Han Sans 与 Noto 同源，视觉变化小；LXGW WenKai 偏书写感，不适合正文；Smiley Sans 只有展示字形，
+  不适合长文本。Sarasa UI SC 是这三者之外更合适 UI 的折中。
+- OFL 允许随程序嵌入与再分发；三个子集和许可证已放在 `cpp/third_party/fonts/`。
+
+字体管线：
+
+- `cpp/tools/make_font.py` 从 Sarasa UI SC 1.0.43 静态字重生成三个子集：
+  Regular 覆盖全部 UI/关卡字符；SemiBold 只覆盖 24px 以上固定标题字符；Bold 只覆盖展示字“灯河”；
+- 生成 `cpp/src/generated/embedded_font.cpp`，随 exe 嵌入，运行时不依赖系统字体；
+- 字号统一收口在 `theme.h`（8–76 设计字号），界面绘制不再散落硬编码字号；
+- 字体按目标物理像素加载（1280 下 20/34/76，1920 下 ×1.5），配合 `DisplayFramebufferScale` 映射；
+  ImGui 字体图集使用 2× oversample、`PixelSnapH`，不做整屏后放大；
+- 不引入位图九宫格/SDF 纹理：当前 UI 是纯色矢量面板，字体清晰度用逐尺寸图集解决，避免额外资源与版权。
+
+## C24 显示模式、重启生效与开场动画
+
+2026-10-28：增加显示设置与开场动画，不改变玩法规则、关卡 JSON、星级阈值或模拟器。
+
+- 显示模式：窗口（1280×720 / 1600×900 / 1920×1080 / 2560×1440）、独占全屏、无边框全屏。
+  全屏与无边框使用桌面分辨率，避免切换显示模式时改变桌面分辨率。
+- 应用策略：显示模式/分辨率在设置中立即写入 `%APPDATA%\RiverOfLamps\settings.json`，
+  但**重启后生效**；设置面板明确提示，运行中不重建窗口，避免 ImGui/SFML 上下文重建风险。
+- 布局：保持 1280×720 设计坐标；SFML 用虚拟 `View`，ImGui 用 `DisplaySize=1280×720` +
+  `DisplayFramebufferScale=(宽/1280, 高/720)`；鼠标物理坐标按同样的宽高比反算回设计坐标，
+  棋盘格、按钮、拖拽命中保持与原坐标一致。16:9 预设为等比缩放；非 16:9 桌面按桌面宽高铺满，
+  有轻微纵向拉伸，命中不会错位。
+- 开场动画：每次启动默认播放 2.2 秒；点击鼠标或任意键跳过；设置中可关闭。
+  只推进自己的计时并暂停模拟，不阻塞窗口消息、不改变输入初始化，也不写入进度。
+- 启动动画、显示设置均不改变任何关卡数据与模拟时序；新增 `SettingsStore` 与设置存档断言。
+
+## C25 移除独占全屏，改为无边框窗口全屏
+
+2026-10-28：用户反馈全屏会闪黑屏，jyfactorio 也有相同问题。排查结论：
+
+- SFML 2.6.1 的 Windows 窗口创建在 `sf::Style::Fullscreen` 时走
+  `WindowImplWin32::switchToFullscreen`，会调用
+  `ChangeDisplaySettingsW(&devMode, CDS_FULLSCREEN)`，再 `SetWindowLongPtr`/`SetWindowPos`/`ShowWindow`。
+- 该 DEVMODE 只填了宽、高、色深（未指定刷新率），并且在创建窗口后才切换显示模式；
+  Windows 10/11 的 DWM 会把这次切换当作一次桌面模式变更/重新枚举，表现为启动、
+  Alt-Tab、窗口激活时闪黑屏。它不是本项目 ImGui/SFML 绘制循环的 FBO/缩放问题，
+  任何使用同一 `sf::Style::Fullscreen` 路径的 SFML 2.6 程序都会遇到，jyfactorio 因此同样复现。
+- 解决：**不再提供独占全屏**。显示模式只有“窗口模式”和“无边框全屏”；后者创建
+  `sf::VideoMode::getDesktopMode()` + `sf::Style::None` + `setPosition(0,0)`，不调用
+  `ChangeDisplaySettings`，也不改变桌面显示模式。
+- 旧 `settings.json` 的 `display_mode=1`（独占全屏）和 `2`（无边框）在读取时统一迁移为无边框；
+  写回值统一为 2。设置仍需重启后生效。
+- 取舍：牺牲独占全屏可能带来的极小延迟/刷新率控制，换取稳定的 DWM 合成、Alt-Tab 和无闪黑；
+  对这类 2D 解谜游戏没有必要使用独占全屏。
+
+## C26 第 3 关重新设计：两级非门
+
+2026-10-28：用户指出第 2 关和第 3 关设计完全相同。核对 `level_02.json` / `level_03.json`：
+
+- 两关原本都是“源脉冲 → 单非门 → 目标”，目标都录 `[0,1]`，仅整体平移一格、灯槽多一格；
+- 第 3 关没有引入新规则、新元件或新的时序概念，确实是一个重复关卡。
+
+处理：
+
+- 第 3 关改为**两个非门串联**：源 1 拍脉冲 → 非门 1 → 非门 2 → 目标；目标录 `[1]`，参考完成拍 2。
+- 第 2 关保留“单次翻转、先灭后亮”，第 3 关教“翻转两次恢复亮”的奇偶性；两关不再相同。
+- 第 4、5 关仍分别教与门、或门；不修改模拟器、规则、星级判定代码。
+- `level_03.json`、README、outline 与测试中的参考完成拍同步；历史 C19 保留作为当时的记录，
+  本条为新的内容决定。
+
+## C27 无边框全屏仍不能“恰好铺满”：桌面 −2px + 焦点置顶
+
+2026-10-28 追加，修正 C25 中“桌面分辨率 + Style::None 就足够”的初版判断。
+
+- 本机（Intel Arc 140T、2560×1600@144、Win11 25H2、150% 缩放）实测：
+  **恰好等于桌面尺寸**的 `Style::None` 窗口仍会被 Windows 判为全屏应用，交给
+  DirectFlip/MPO 呈现路径；应用侧 `display()`/SwapBuffers 正常返回，但显示控制器不消费新帧。
+  任何覆盖物（输入法候选窗、通知、OSD、音量条）出现/消失会强制重新合成，画面在旧帧与纯黑之间翻转。
+- 修复：无边框分支窗口取 `desktop.width - 2 × desktop.height - 2`（2560×1600 → 2558×1598），
+  `setPosition({0,0})`。这样回到 DWM 合成路径，不再被判定为全屏应用；刷新率也保持桌面 144Hz。
+- 任务栏：窗口有焦点时 `SetWindowPos(HWND_TOPMOST)`，失焦时 `HWND_NOTOPMOST`；
+  只在 `hasFocus()` 变化时调用，绝不无条件置顶，保证 Alt-Tab 能切出。
+- 输入法：本作无文本输入，进程启动即 `ImmDisableIME(-1)`，减少候选窗/语言栏覆盖物与 Z 序冲突。
+- 事件：补 `Resized`（刷新 `window_size_`/`ui_scale_*`/视图/ImGui 缩放）和
+  `GainedFocus`/`LostFocus`（置顶跟随）。
+- 根因证据：
+  - SFML 2.6.1 `WindowImplWin32::switchToFullscreen`：`ChangeDisplaySettingsW(..., CDS_FULLSCREEN)`，
+    `DEVMODE` 未零初始化、`dmFields` 不含 `DM_DISPLAYFREQUENCY`；
+  - SFML issue #1284：全屏尺寸 `WS_POPUP` 被驱动视为独占全屏、旁路 DWM；
+  - Microsoft Windows-Dev-Performance #129：Win11 24H2/25H2 全屏 MPO/独立翻转导致闪屏；
+  - 同机 jyfactorio `ai.md` §0.1-O 的 A/B 矩阵：2560×1600 坏，2558×1598 正常；
+    该结论不依赖是否置顶。
+
+## C28 OR 是标准 OR，不是 XOR；第 5 关用错时序列
+
+2026-10-28 用户追问“2 里有 1 就满足，2 里有 2 时也满足吗”。核对与补充：
+
+- `Simulator::gate_output` 对 OR 使用 `a | input_or(uid, 1)`；`input_or` 对每个输入桶内多条上游也按 OR 合并。
+- 因此真值表是标准的：`0/0=0`、`1/0=1`、`0/1=1`、**`1/1=1`**；不存在“只允许一路高”的 XOR 限制。
+- 第 5 关目标 `[1,0,1]` 是**时间序列**要求，不是“或门是否满足”的一次性判断：
+  两路同时高时 OR 输出为高（正确），但目标只会看到一段高，不会得到“亮-灭-亮”；
+  必须让左路 4 拍、下路 6 拍到达，形成两段错开的脉冲。
+- 已新增回归测试 `test_or_both_high`：两路同拍高，OR 1/1 输出高并通过；第 5 关 hint 也改写为
+  “1+0、0+1、1+1 都亮，不是 XOR；两路错开才形成亮-灭-亮”。

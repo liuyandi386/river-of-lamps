@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-set "VERSION=1.0.0"
+set "VERSION=1.0.1"
 set "PKGNAME=river-of-lamps-v%VERSION%-win64"
 set "STAGE=dist\%PKGNAME%"
 set "ZIP=dist\%PKGNAME%.zip"
@@ -41,7 +41,9 @@ copy /y "docs\rules\element_rules.md" "%STAGE%\docs\rules\" >nul
 
 copy /y "cpp\third_party\SFML-2.6.1\license.md" "%STAGE%\licenses\SFML-2.6.1.txt" >nul
 copy /y "cpp\third_party\nlohmann\LICENSE.MIT" "%STAGE%\licenses\nlohmann-json-MIT.txt" >nul
-copy /y "cpp\third_party\fonts\OFL.txt" "%STAGE%\licenses\Noto-Sans-SC-OFL.txt" >nul
+copy /y "cpp\third_party\fonts\OFL-SarasaGothic.txt" "%STAGE%\licenses\SarasaGothic-OFL.txt" >nul
+copy /y "cpp\third_party\imgui\LICENSE.txt" "%STAGE%\licenses\Dear-ImGui-MIT.txt" >nul
+copy /y "cpp\third_party\imgui-sfml\LICENSE" "%STAGE%\licenses\ImGui-SFML-MIT.txt" >nul
 
 > "%STAGE%\RUNNING.txt" echo River of Lamps v%VERSION% - Windows x64 portable
 >>"%STAGE%\RUNNING.txt" echo.
@@ -49,7 +51,8 @@ copy /y "cpp\third_party\fonts\OFL.txt" "%STAGE%\licenses\Noto-Sans-SC-OFL.txt" 
 >>"%STAGE%\RUNNING.txt" echo 2. Double-click RiverOfLamps.exe.
 >>"%STAGE%\RUNNING.txt" echo 3. No Godot, SFML, compiler, or runtime installation is required.
 >>"%STAGE%\RUNNING.txt" echo 4. Progress is stored in %%APPDATA%%\RiverOfLamps\progress.json.
->>"%STAGE%\RUNNING.txt" echo 5. Read README.md and update.md for details.
+>>"%STAGE%\RUNNING.txt" echo 5. Display/splash settings are stored in %%APPDATA%%\RiverOfLamps\settings.json.
+>>"%STAGE%\RUNNING.txt" echo 6. Read README.md and update.md for details.
 
 where tar >nul 2>nul
 if errorlevel 1 (

@@ -146,29 +146,97 @@ const char* const kLevel02Json = R"RIVERJSON({
 const char* const kLevel03Json = R"RIVERJSON({
   "schema": 1,
   "id": "level_03",
-  "name": { "zh": "第一盏灯" },
+  "name": {
+    "zh": "第一盏灯"
+  },
   "chapter": "tutorial",
-  "grid": { "w": 8, "h": 8 },
+  "grid": {
+    "w": 8,
+    "h": 8
+  },
   "tick_budget": 24,
   "max_components": 10,
   "preset": [
-    { "type": "source", "pos": [0, 3], "params": { "mode": "pulse", "pulse_at_tick": 0 } },
-    { "type": "not", "pos": [4, 3], "params": {} }
+    {
+      "type": "source",
+      "pos": [
+        0,
+        3
+      ],
+      "params": {
+        "mode": "pulse",
+        "pulse_at_tick": 0
+      }
+    },
+    {
+      "type": "not",
+      "pos": [
+        2,
+        3
+      ],
+      "params": {}
+    },
+    {
+      "type": "not",
+      "pos": [
+        4,
+        3
+      ],
+      "params": {}
+    }
   ],
-  "available": ["wire"],
+  "available": [
+    "wire"
+  ],
   "targets": [
-    { "id": "t1", "pos": [5, 3], "expect": [0, 1], "start_tick": 3 }
+    {
+      "id": "t1",
+      "pos": [
+        5,
+        3
+      ],
+      "expect": [
+        1
+      ],
+      "start_tick": 2
+    }
   ],
   "interference": [],
   "hint": {
-    "zh": "非门会把高变低、低变高。脉冲经过非门时，目标会先看到“灭”，下一拍才看到“亮”。"
+    "zh": "串联两个非门：翻转两次等于不翻转，但灯槽仍然每格延迟 1 拍。先把源接到第一个非门，再把中间接到第二个非门。"
   },
-  "reference_finish": 4,
-  "star_thresholds": { "three": 4, "two": 6, "one": 9 },
+  "reference_finish": 2,
+  "star_thresholds": {
+    "three": 2,
+    "two": 4,
+    "one": 8
+  },
   "reference_solution": {
     "wires": [
-      [[1, 3], [2, 3], [3, 3], [4, 3]]
+      [
+        [
+          1,
+          3
+        ],
+        [
+          2,
+          3
+        ]
+      ],
+      [
+        [
+          3,
+          3
+        ],
+        [
+          4,
+          3
+        ]
+      ]
     ]
+  },
+  "teach": {
+    "zh": "一个非门把亮变成灭，两个非门会再翻回来。源只亮 1 拍；让信号依次穿过两级非门，目标会看到一盏短灯。"
   }
 }
 )RIVERJSON";
@@ -222,7 +290,7 @@ const char* const kLevel05Json = R"RIVERJSON({
   ],
   "interference": [],
   "hint": {
-    "zh": "或门只要有一路亮就亮。让左边那路 4 拍到，下面那路 6 拍到：目标会看到亮、灭、亮。"
+    "zh": "或门是标准 OR：1+0、0+1、1+1 都亮，不是 XOR。这里要让左边那路 4 拍到、下面那路 6 拍到，两路错开才会形成亮-灭-亮。"
   },
   "reference_finish": 6,
   "star_thresholds": { "three": 6, "two": 8, "one": 12 },

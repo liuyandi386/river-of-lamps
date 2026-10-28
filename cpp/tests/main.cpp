@@ -3,6 +3,7 @@
 // 构建后直接运行：build\river_tests.exe
 
 #include "app/progress.h"
+#include "app/settings.h"
 #include "core/circuit_graph.h"
 #include "core/level_builder.h"
 #include "core/level_repository.h"
@@ -10,6 +11,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -153,6 +155,36 @@ void test_or_sequence() {
     }
 }
 
+void test_or_both_high() {
+    CircuitGraph graph = make_graph(8, 8);
+    add_source(graph, {0, 2}, "high");
+    for (int x = 1; x <= 3; ++x) {
+        add_wire(graph, {x, 2}, kRight);
+    }
+    add_gate(graph, {4, 2}, "or");
+
+    add_source(graph, {4, 6}, "high");
+    add_wire(graph, {5, 6}, kUp);
+    add_wire(graph, {5, 5}, kUp);
+    add_wire(graph, {5, 4}, kLeft);
+    add_wire(graph, {4, 4}, kUp);
+    add_wire(graph, {4, 3}, kUp);
+
+    add_target(graph, {5, 2}, {1}, 8);
+    Simulator sim = make_sim(graph);
+    const std::vector<std::string> or_errors = sim.validation_errors();
+    std::string or_why;
+    for (const auto& error : or_errors) {
+        if (!or_why.empty()) or_why += "; ";
+        or_why += error;
+    }
+    ok(or_errors.empty(), "或门 1/1：两个输入都已连接（" + or_why + "）");
+    const RunResult result = sim.run_until_done(100);
+    ok(result.passed, "或门 1/1 应输出高电平（不是 XOR）");
+    ok(result.completion_tick == 8, "或门 1/1 目标应在第 8 拍看到高，实际 " +
+                                      std::to_string(result.completion_tick));
+}
+
 void test_first_error() {
     CircuitGraph graph = make_graph(8, 1);
     add_source(graph, {0, 0}, "high");
@@ -203,7 +235,7 @@ void test_levels() {
     const std::vector<std::string> ids = {
         "level_01", "level_02", "level_03", "level_04", "level_05",
     };
-    const std::vector<int> expected_ticks = {6, 3, 4, 4, 6};
+    const std::vector<int> expected_ticks = {6, 3, 2, 4, 6};
 
     for (std::size_t i = 0; i < ids.size(); ++i) {
         const std::string& id = ids[i];
@@ -329,6 +361,42 @@ void test_progress_stars() {
 #endif
 }
 
+void test_settings_store() {
+#ifdef _WIN32
+    const char* original = std::getenv("APPDATA");
+    const std::string original_value = original == nullptr ? std::string{} : std::string{original};
+    const std::filesystem::path temp =
+        std::filesystem::temp_directory_path() / "river_settings_test";
+    std::filesystem::remove_all(temp);
+    _putenv_s("APPDATA", temp.string().c_str());
+
+    AppSettings settings;
+    settings.display_mode = DisplayMode::Borderless;
+    settings.window_width = 1920;
+    settings.window_height = 1080;
+    settings.splash_enabled = false;
+    SettingsStore::save(settings);
+    const AppSettings loaded = SettingsStore::load();
+    ok(loaded.display_mode == DisplayMode::Borderless, "显示模式应保存为无边框全屏");
+    ok(loaded.window_width == 1920 && loaded.window_height == 1080,
+       "窗口分辨率应保存为 1920×1080");
+    ok(!loaded.splash_enabled, "启动动画开关应保存");
+
+    {
+        std::ofstream raw(SettingsStore::default_path(), std::ios::trunc);
+        raw << R"({"display_mode":1,"window_width":1280,"window_height":720,"splash_enabled":false})";
+    }
+    const AppSettings legacy = SettingsStore::load();
+    ok(legacy.display_mode == DisplayMode::Borderless,
+       "旧版独占全屏设置应迁移为无边框全屏");
+
+    std::filesystem::remove_all(temp);
+    _putenv_s("APPDATA", original_value.c_str());
+#else
+    ok(true, "设置存档测试只在 Windows 上运行");
+#endif
+}
+
 }  // namespace
 
 int main() {
@@ -343,6 +411,8 @@ int main() {
     test_and_alignment();
     std::cout << "== 4. 或门序列 ==\n";
     test_or_sequence();
+    std::cout << "== 4b. 或门 1/1 ==\n";
+    test_or_both_high();
     std::cout << "== 5. 首错拍 ==\n";
     test_first_error();
     std::cout << "== 6. 零延迟门链 ==\n";
@@ -355,9 +425,11 @@ int main() {
     test_star_boundaries();
     std::cout << "== 10. 星级进度存档 ==\n";
     test_progress_stars();
+    std::cout << "== 11. 显示设置存档 ==\n";
+    test_settings_store();
 
     if (g_failures == 0) {
-        std::cout << "\nALL TESTS PASSED（40 条原断言 + 星级窗口/边界/进度断言）\n";
+        std::cout << "\nALL TESTS PASSED（40 条原断言 + 星级窗口/边界/进度/设置断言）\n";
         return 0;
     }
     std::cout << "\nTESTS FAILED: " << g_failures << "\n";

@@ -1,19 +1,12 @@
 #include "app/waveform_view.h"
 
+#include "app/theme.h"
 #include "app/ui_draw.h"
 
 #include <algorithm>
 #include <string>
 
 namespace river {
-
-namespace {
-const sf::Color kHigh(255, 184, 56);
-const sf::Color kLow(36, 59, 107);
-const sf::Color kEmpty(20, 26, 41);
-const sf::Color kText(166, 191, 230);
-const sf::Color kError(255, 51, 51);
-}  // namespace
 
 void WaveformView::set_state(const std::vector<int>& expect, int start_tick, int budget,
                              const std::vector<int>& actual, const std::optional<ErrorInfo>& error,
@@ -27,9 +20,9 @@ void WaveformView::set_state(const std::vector<int>& expect, int start_tick, int
 }
 
 sf::Color WaveformView::color_for(int value) {
-    if (value == 1) return kHigh;
-    if (value == 0) return kLow;
-    return kEmpty;
+    if (value == 1) return theme::gold;
+    if (value == 0) return theme::wire_low;
+    return theme::bg_elevated;
 }
 
 void WaveformView::draw(sf::RenderTarget& target, const sf::Font& font,
@@ -41,8 +34,9 @@ void WaveformView::draw(sf::RenderTarget& target, const sf::Font& font,
     const float cell_w = std::clamp((rect.width - label_w - 8.f) / static_cast<float>(budget_),
                                     5.f, 14.f);
 
-    ui::draw_text(target, font, "目标", 13, {rect.left, top - 14.f}, kText);
-    ui::draw_text(target, font, "实际", 13, {rect.left, top + row_h + gap + 1.f}, kText);
+    ui::draw_text(target, font, "目标", static_cast<unsigned>(theme::text_body), {rect.left, top - 14.f}, theme::text_muted);
+    ui::draw_text(target, font, "实际", static_cast<unsigned>(theme::text_body), {rect.left, top + row_h + gap + 1.f},
+                  theme::text_muted);
 
     const float y_exp = top + 6.f;
     const float y_act = y_exp + row_h + gap;
@@ -64,25 +58,26 @@ void WaveformView::draw(sf::RenderTarget& target, const sf::Font& font,
 
     const float sx = rect.left + label_w + start_tick_ * cell_w;
     ui::draw_line(target, {sx, y_exp - 2.f}, {sx, y_act + row_h + 2.f},
-                  sf::Color(255, 204, 102, 178), 1.f);
+                  sf::Color(theme::gold.r, theme::gold.g, theme::gold.b, 178), 1.f);
 
     if (error_.has_value() && error_->tick >= 0) {
         const float ex = rect.left + label_w + error_->tick * cell_w;
         ui::outline_rect(target, {ex - 1.f, y_exp - 3.f, cell_w + 1.f,
                                   y_act + row_h - y_exp + 6.f},
-                         kError, 2.f);
+                         theme::danger, 2.f);
     }
 
     for (const GlitchMark& glitch : glitches_) {
         if (glitch.tick < 0) continue;
         const float gx = rect.left + label_w + glitch.tick * cell_w + cell_w * 0.5f;
-        ui::fill_circle(target, {gx, y_act + row_h + 9.f}, 3.f, kError);
+        ui::fill_circle(target, {gx, y_act + row_h + 9.f}, 3.f, theme::danger);
     }
 
     const int step = budget_ <= 32 ? 2 : 4;
     for (int i = 0; i < budget_; i += step) {
         const float x = rect.left + label_w + i * cell_w;
-        ui::draw_text(target, font, std::to_string(i), 10, {x, rect.top + rect.height - 15.f}, kText);
+        ui::draw_text(target, font, std::to_string(i), static_cast<unsigned>(theme::text_caption), {x, rect.top + rect.height - 15.f},
+                      theme::text_dim);
     }
 }
 

@@ -2,7 +2,9 @@
 
 #include "app/board_view.h"
 #include "app/progress.h"
+#include "app/settings.h"
 #include "app/sound.h"
+#include "app/theme.h"
 #include "app/waveform_view.h"
 #include "core/circuit_graph.h"
 #include "core/level_data.h"
@@ -10,6 +12,7 @@
 #include "core/simulator.h"
 
 #include <SFML/Graphics.hpp>
+#include "imgui.h"
 
 #include <filesystem>
 #include <string>
@@ -20,7 +23,9 @@ namespace river {
 class App {
 public:
     explicit App(std::filesystem::path exe_dir, std::string capture_path = {},
-                 std::string capture_mode = {});
+                 std::string capture_mode = {}, int forced_width = 0,
+                 int forced_height = 0);
+    ~App();
     int run();
 
 private:
@@ -36,7 +41,7 @@ private:
         bool toggle = false;
         bool active = false;
         bool hovered = false;
-        unsigned font_size = 15;
+        unsigned font_size = static_cast<unsigned>(theme::text_body);
 
         bool hit(const sf::Vector2f& point) const {
             return enabled && rect.contains(point);
@@ -46,6 +51,15 @@ private:
     void build_ui();
     void run_capture();
     bool capture_window(const std::string& path);
+    void create_window();
+    sf::Vector2f to_ui(const sf::Vector2f& point) const;
+    void apply_imgui_scale();
+    void handle_window_resize(unsigned width, unsigned height);
+    void update_borderless_window_state();
+    void save_settings();
+    void rebuild_settings_buttons();
+    void draw_splash();
+    void draw_settings_panel();
     void apply_reference_for_capture();
     void build_fail_demo();
     void build_menu_buttons();
@@ -79,7 +93,6 @@ private:
     void draw_game();
     void draw_overlay();
     void draw_background();
-    void draw_lamp_river();
     void draw_button(const Button& button);
     void draw_panel(const sf::FloatRect& rect);
     void draw_level_card(const Button& button, int index);
@@ -106,6 +119,8 @@ private:
     void build_window_icon();
 
     sf::RenderWindow window_;
+    sf::View ui_view_;
+    ImDrawList* ui_draw_ = nullptr;
     sf::Font font_;
     bool font_ok_ = false;
     sf::Cursor arrow_cursor_;
@@ -115,21 +130,33 @@ private:
     std::filesystem::path exe_dir_;
     LevelRepository repo_;
     Progress progress_;
+    AppSettings settings_;
     SoundPlayer sound_;
     std::string capture_path_;
     std::string capture_mode_;
+    sf::Vector2u window_size_{1280, 720};
+    float ui_scale_x_ = 1.f;
+    float ui_scale_y_ = 1.f;
+    bool borderless_topmost_ = false;
+    bool window_focused_ = false;
+    bool borderless_window_ = false;
 
     Screen screen_ = Screen::Menu;
     Phase phase_ = Phase::Editing;
     float time_ = 0.f;
     float accumulator_ = 0.f;
     float speed_ = 1.f;
+    float fade_ = 1.f;
+    float overlay_anim_ = 1.f;
+
+    bool imgui_ok_ = false;
 
     std::vector<Button> menu_buttons_;
     std::vector<Button> level_cards_;
     std::vector<Button> game_level_buttons_;
     std::vector<Button> palette_buttons_;
     std::vector<Button> overlay_buttons_;
+    std::vector<Button> settings_buttons_;
     Button back_button_;
     Button run_button_;
     Button retry_button_;
@@ -140,6 +167,10 @@ private:
     bool reset_confirm_ = false;
     bool hint_visible_ = false;
     bool overlay_visible_ = false;
+    bool settings_open_ = false;
+    bool restart_required_ = false;
+    bool splash_active_ = false;
+    float splash_time_ = 0.f;
     std::string menu_message_;
     std::string message_;
     std::string overlay_title_;

@@ -21,14 +21,35 @@ SFML is statically linked into `RiverOfLamps.exe`.
 
 nlohmann/json is a header-only library compiled into the executable.
 
-## Noto Sans SC (subset)
+## Sarasa UI SC (更纱黑体 UI SC, subset)
 
-- Project: https://fonts.google.com/noto/specimen/Noto+Sans+SC
+- Project: https://github.com/be5invis/Sarasa-Gothic
 - License: SIL Open Font License 1.1
-- Full text: `licenses/Noto-Sans-SC-OFL.txt`
+- Copyright (c) 2015-2025, Renzhi Li (Belleve Invis), with portions from the Inter and Source Han Sans projects.
+- Full text: `licenses/SarasaGothic-OFL.txt`
 - Source: `cpp/third_party/fonts/`
 
-The embedded font is a subset generated from Noto Sans SC for this project. The subset remains under the SIL OFL 1.1.
+Three embedded subsets are generated for the project: Regular (body), SemiBold (large headings), Bold (display title). The subsets remain under the SIL OFL 1.1.
+
+## Dear ImGui 1.89.9
+
+- Project: https://github.com/ocornut/imgui
+- License: MIT
+- Copyright (c) 2014-2024 Omar Cornut
+- Full text: `licenses/Dear-ImGui-MIT.txt`
+- Source: `cpp/third_party/imgui/`
+
+Dear ImGui is compiled into the executable and used for the UI draw list and font atlas.
+
+## ImGui-SFML 2.6.1
+
+- Project: https://github.com/SFML/imgui-sfml
+- License: MIT
+- Copyright (c) 2017-2024 Elias Daler
+- Full text: `licenses/ImGui-SFML-MIT.txt`
+- Source: `cpp/third_party/imgui-sfml/`
+
+ImGui-SFML is compiled into the executable as the Dear ImGui backend for SFML 2.6.
 
 ## MinGW-w64 runtime
 

@@ -14,8 +14,12 @@ extern const char* const kElementsJson;
 extern const LevelBlob kLevels[];
 extern const std::size_t kLevelCount;
 
-// 由 tools/make_embedded_assets.py 生成的 Noto Sans SC 子集。
-extern const unsigned char kFontData[];
-extern const std::size_t kFontSize;
+// 由 tools/make_font.py 生成的 Sarasa UI SC 子集。
+extern const unsigned char kFontRegularData[];
+extern const std::size_t kFontRegularSize;
+extern const unsigned char kFontHeadingData[];
+extern const std::size_t kFontHeadingSize;
+extern const unsigned char kFontDisplayData[];
+extern const std::size_t kFontDisplaySize;
 
 }  // namespace river::embedded

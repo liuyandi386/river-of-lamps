@@ -26,6 +26,7 @@ public:
     void set_tool(const std::string& tool);
     void set_editable(bool editable);
     void set_origin(const sf::Vector2f& origin);
+    void update(float dt);
 
     int cell_size = 56;
     sf::FloatRect board_rect() const;
@@ -61,6 +62,8 @@ private:
     std::vector<int> frame_glitched_;
     int error_target_uid_ = -1;
     int error_tick_ = -1;
+    float pulse_ = 0.f;
+    int last_frame_tick_ = -2;
 
     sf::Vector2f origin_{0.f, 0.f};
 };

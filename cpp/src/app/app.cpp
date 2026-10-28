@@ -1,14 +1,24 @@
 #include "app/app.h"
 
+#include "app/imgui_ui.h"
+#include "app/theme.h"
 #include "app/ui_draw.h"
 #include "core/component_rules.h"
 #include "core/level_builder.h"
 #include "generated/embedded_assets.h"
 
+#include "imgui-SFML.h"
+#include "imgui.h"
+
 #include <SFML/System/Sleep.hpp>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <string>
 #include <utility>
@@ -20,16 +30,6 @@ namespace {
 constexpr float kW = 1280.f;
 constexpr float kH = 720.f;
 constexpr float kTickInterval = 0.55f;
-
-const sf::Color kText(220, 232, 255);
-const sf::Color kTextDim(120, 138, 168);
-const sf::Color kGold(255, 199, 90);
-const sf::Color kRed(255, 96, 96);
-const sf::Color kInPort(140, 191, 255);
-const sf::Color kPanel(15, 20, 33);
-const sf::Color kPanelBorder(38, 50, 74);
-const sf::Color kButton(30, 38, 58);
-const sf::Color kButtonHover(44, 56, 82);
 
 std::string number2(int value) {
     char buffer[8];
@@ -44,24 +44,26 @@ sf::String window_title() {
 
 }  // namespace
 
-App::App(std::filesystem::path exe_dir, std::string capture_path, std::string capture_mode)
-    : window_(sf::VideoMode(static_cast<unsigned>(kW), static_cast<unsigned>(kH)),
-              window_title(),
-              sf::Style::Titlebar | sf::Style::Close),
-      exe_dir_(std::move(exe_dir)),
+App::App(std::filesystem::path exe_dir, std::string capture_path, std::string capture_mode,
+         int forced_width, int forced_height)
+    : exe_dir_(std::move(exe_dir)),
       repo_(exe_dir_),
       capture_path_(std::move(capture_path)),
       capture_mode_(std::move(capture_mode)) {
-    window_.setVerticalSyncEnabled(true);
-    window_.setKeyRepeatEnabled(false);
-    build_window_icon();
+    settings_ = SettingsStore::load();
+    if (forced_width > 0 && forced_height > 0) {
+        settings_.display_mode = DisplayMode::Windowed;
+        settings_.window_width = forced_width;
+        settings_.window_height = forced_height;
+    }
+    create_window();
 
-    font_ok_ = font_.loadFromMemory(embedded::kFontData, embedded::kFontSize);
+    font_ok_ = font_.loadFromMemory(embedded::kFontRegularData,
+                                    embedded::kFontRegularSize);
     if (!font_ok_) {
         const char* fallbacks[] = {
-            "C:/Windows/Fonts/NotoSansSC-VF.ttf",
-            "C:/Windows/Fonts/simhei.ttf",
             "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
         };
         for (const char* path : fallbacks) {
             if (font_.loadFromFile(path)) {
@@ -81,13 +83,212 @@ App::App(std::filesystem::path exe_dir, std::string capture_path, std::string ca
     refresh_level_cards();
     refresh_button_labels();
     menu_message_ = repo_.entries().empty()
-                        ? "找不到关卡数据：请把 game/data/levels 放在 exe 旁边。"
+                        ? "找不到关卡数据：请把 data/levels 放在 exe 旁边。"
                         : "选择关卡，或直接开始游戏。";
 
     if (arrow_cursor_.loadFromSystem(sf::Cursor::Arrow)) {
         window_.setMouseCursor(arrow_cursor_);
     }
     hand_cursor_.loadFromSystem(sf::Cursor::Hand);
+
+    imgui_ok_ = ImGui::SFML::Init(window_, false);
+    if (imgui_ok_) {
+        ImGuiIO& io = ImGui::GetIO();
+        io.IniFilename = nullptr;
+        io.LogFilename = nullptr;
+        io.MouseDrawCursor = false;
+        io.Fonts->TexDesiredWidth = 2048;
+
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.WindowPadding = ImVec2(0.f, 0.f);
+        style.FramePadding = ImVec2(12.f, 8.f);
+        style.ItemSpacing = ImVec2(8.f, 8.f);
+        style.WindowRounding = theme::radius_md;
+        style.FrameRounding = theme::radius_sm;
+        style.PopupRounding = theme::radius_sm;
+        style.ScrollbarRounding = theme::radius_sm;
+        style.GrabRounding = theme::radius_sm;
+        style.WindowBorderSize = 1.f;
+        style.FrameBorderSize = 1.f;
+        style.AntiAliasedLines = true;
+        style.AntiAliasedFill = true;
+
+        auto set_color = [&style](ImGuiCol idx, sf::Color c) {
+            style.Colors[idx] = ImVec4(c.r / 255.f, c.g / 255.f, c.b / 255.f, c.a / 255.f);
+        };
+        set_color(ImGuiCol_Text, theme::text);
+        set_color(ImGuiCol_TextDisabled, theme::text_dim);
+        set_color(ImGuiCol_WindowBg, theme::bg);
+        set_color(ImGuiCol_ChildBg, theme::surface);
+        set_color(ImGuiCol_PopupBg, theme::surface);
+        set_color(ImGuiCol_Border, theme::border);
+        set_color(ImGuiCol_FrameBg, theme::surface_alt);
+        set_color(ImGuiCol_FrameBgHovered, theme::surface_hover);
+        set_color(ImGuiCol_FrameBgActive, theme::surface_hover);
+        set_color(ImGuiCol_TitleBg, theme::surface);
+        set_color(ImGuiCol_TitleBgActive, theme::surface_alt);
+        set_color(ImGuiCol_Button, theme::surface_alt);
+        set_color(ImGuiCol_ButtonHovered, theme::surface_hover);
+        set_color(ImGuiCol_ButtonActive, theme::border_strong);
+        set_color(ImGuiCol_Header, theme::surface_alt);
+        set_color(ImGuiCol_HeaderHovered, theme::surface_hover);
+        set_color(ImGuiCol_HeaderActive, theme::border_strong);
+        set_color(ImGuiCol_Separator, theme::border);
+        set_color(ImGuiCol_CheckMark, theme::gold);
+        set_color(ImGuiCol_SliderGrab, theme::gold);
+        set_color(ImGuiCol_SliderGrabActive, theme::gold_bright);
+        set_color(ImGuiCol_ScrollbarBg, theme::bg_elevated);
+        set_color(ImGuiCol_ScrollbarGrab, theme::border);
+
+        // 字体按物理像素加载；draw list 坐标仍使用 1280x720 设计坐标，
+        // 由 DisplayFramebufferScale 做最终缩放，避免 1920 下放大发虚。
+        io.Fonts->Clear();
+        const float body_px = 20.f * ui_scale_y_;
+        const float heading_px = 34.f * ui_scale_y_;
+        const float display_px = 76.f * ui_scale_y_;
+        ImFontGlyphRangesBuilder range_builder;
+        range_builder.AddRanges(io.Fonts->GetGlyphRangesChineseFull());
+        range_builder.AddText("≤≥×→←↑↓");
+        ImVector<ImWchar> glyph_ranges;
+        range_builder.BuildRanges(&glyph_ranges);
+        auto add_font = [&io, &glyph_ranges](const unsigned char* data, std::size_t size,
+                                            float pixels) -> ImFont* {
+            ImFontConfig cfg;
+            cfg.FontDataOwnedByAtlas = false;
+            cfg.OversampleH = 2;
+            cfg.OversampleV = 2;
+            cfg.PixelSnapH = true;
+            return io.Fonts->AddFontFromMemoryTTF(
+                const_cast<unsigned char*>(data), static_cast<int>(size), pixels,
+                &cfg, glyph_ranges.Data);
+        };
+        ImFont* body_font = add_font(embedded::kFontRegularData,
+                                     embedded::kFontRegularSize, body_px);
+        ImFont* heading_font = add_font(embedded::kFontHeadingData,
+                                       embedded::kFontHeadingSize, heading_px);
+        ImFont* display_font = add_font(embedded::kFontDisplayData,
+                                       embedded::kFontDisplaySize, display_px);
+        if (body_font == nullptr) {
+            body_font = io.Fonts->AddFontDefault();
+        }
+        io.FontDefault = body_font;
+        imgui_ui::set_fonts(body_font, heading_font ? heading_font : body_font,
+                            display_font ? display_font : body_font);
+        if (!ImGui::SFML::UpdateFontTexture()) {
+            io.Fonts->Clear();
+            body_font = io.Fonts->AddFontDefault();
+            io.FontDefault = body_font;
+            imgui_ui::set_fonts(body_font, body_font, body_font);
+            const bool fallback_ok = ImGui::SFML::UpdateFontTexture();
+            (void)fallback_ok;
+        }
+        apply_imgui_scale();
+    }
+
+    splash_time_ = 0.f;
+    splash_active_ = settings_.splash_enabled && capture_mode_.empty();
+    if (capture_mode_ == "splash") {
+        splash_active_ = true;
+        splash_time_ = 0.9f;
+    } else if (capture_mode_ == "settings") {
+        screen_ = Screen::Menu;
+        settings_open_ = true;
+    }
+}
+
+void App::create_window() {
+    const sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+    sf::VideoMode video_mode = desktop;
+    sf::Uint32 style = sf::Style::Titlebar | sf::Style::Close;
+    borderless_window_ = settings_.display_mode != DisplayMode::Windowed;
+    if (settings_.display_mode == DisplayMode::Windowed) {
+        video_mode = sf::VideoMode(static_cast<unsigned>(settings_.window_width),
+                                   static_cast<unsigned>(settings_.window_height));
+    } else {
+        // 无边框窗口全屏：不调用 SFML 的 Style::Fullscreen，也就不会触发
+        // ChangeDisplaySettings / 桌面显示模式切换。
+        // 关键：不要恰好铺满桌面。2560x1600 的 WS_POPUP 会被 Windows 当成
+        // 全屏应用交给 DirectFlip/MPO；本机这条路径会定格旧帧并闪黑。
+        // 比桌面少 2px 即可保持 DWM 合成。
+        const unsigned width = desktop.width > 2 ? desktop.width - 2 : desktop.width;
+        const unsigned height = desktop.height > 2 ? desktop.height - 2 : desktop.height;
+        video_mode = sf::VideoMode(width, height);
+        style = sf::Style::None;
+    }
+
+    window_.create(video_mode, window_title(), style);
+    if (!window_.isOpen()) {
+        borderless_window_ = false;
+        window_.create(sf::VideoMode(1280, 720), window_title(),
+                       sf::Style::Titlebar | sf::Style::Close);
+    }
+    window_size_ = window_.getSize();
+    ui_scale_x_ = static_cast<float>(window_size_.x) / kW;
+    ui_scale_y_ = static_cast<float>(window_size_.y) / kH;
+
+    ui_view_ = sf::View(sf::FloatRect(0.f, 0.f, kW, kH));
+    window_.setView(ui_view_);
+    window_.setVerticalSyncEnabled(true);
+    window_.setKeyRepeatEnabled(false);
+
+    if (borderless_window_) {
+        window_.setPosition({0, 0});
+    } else {
+        const int x = std::max(0, static_cast<int>(desktop.width) / 2 -
+                                      static_cast<int>(window_size_.x) / 2);
+        const int y = std::max(0, static_cast<int>(desktop.height) / 2 -
+                                      static_cast<int>(window_size_.y) / 2);
+        window_.setPosition({x, y});
+    }
+    build_window_icon();
+}
+
+sf::Vector2f App::to_ui(const sf::Vector2f& point) const {
+    if (window_size_.x == 0 || window_size_.y == 0) return point;
+    return {point.x * kW / static_cast<float>(window_size_.x),
+            point.y * kH / static_cast<float>(window_size_.y)};
+}
+
+void App::apply_imgui_scale() {
+    if (!imgui_ok_) return;
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(kW, kH);
+    io.DisplayFramebufferScale = ImVec2(ui_scale_x_, ui_scale_y_);
+}
+
+void App::handle_window_resize(unsigned width, unsigned height) {
+    if (width == 0 || height == 0) return;
+    window_size_ = {width, height};
+    ui_scale_x_ = static_cast<float>(width) / kW;
+    ui_scale_y_ = static_cast<float>(height) / kH;
+    ui_view_ = sf::View(sf::FloatRect(0.f, 0.f, kW, kH));
+    window_.setView(ui_view_);
+    apply_imgui_scale();
+}
+
+void App::update_borderless_window_state() {
+#ifdef _WIN32
+    if (!borderless_window_ || !window_.isOpen()) return;
+    const bool focused = window_.hasFocus();
+    if (focused == window_focused_ && borderless_topmost_ == focused) return;
+    HWND hwnd = reinterpret_cast<HWND>(window_.getSystemHandle());
+    if (hwnd != nullptr) {
+        SetWindowPos(hwnd, focused ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+    window_focused_ = focused;
+    borderless_topmost_ = focused;
+#endif
+}
+
+void App::save_settings() {
+    SettingsStore::save(settings_);
+}
+
+App::~App() {
+    if (imgui_ok_) {
+        ImGui::SFML::Shutdown(window_);
+    }
 }
 
 int App::run() {
@@ -102,10 +303,25 @@ int App::run() {
     while (window_.isOpen()) {
         sf::Event event{};
         while (window_.pollEvent(event)) {
+            if (imgui_ok_) {
+                ImGui::SFML::ProcessEvent(window_, event);
+            }
             handle_event(event);
         }
-        update(clock.restart().asSeconds());
-        window_.clear(sf::Color(6, 9, 15));
+        update_borderless_window_state();
+        const sf::Time delta = clock.restart();
+        if (imgui_ok_) {
+            ImGui::SFML::SetCurrentWindow(window_);
+            const sf::Vector2i mouse = sf::Mouse::getPosition(window_);
+            const sf::Vector2f virtual_mouse = to_ui(
+                {static_cast<float>(mouse.x), static_cast<float>(mouse.y)});
+            ImGui::SFML::Update(sf::Vector2i(static_cast<int>(virtual_mouse.x),
+                                             static_cast<int>(virtual_mouse.y)),
+                                sf::Vector2f(kW, kH), delta);
+            apply_imgui_scale();
+        }
+        update(delta.asSeconds());
+        window_.clear(theme::bg);
         draw();
         window_.display();
     }
@@ -170,6 +386,20 @@ void App::run_capture() {
         }
         set_phase(Phase::Running);
         message_ = "运行中……脉冲进入非门的那一拍，目标会先灭。";
+    } else if (capture_mode_ == "level3game") {
+        progress_.unlocked = 3;
+        load_level(2);
+        apply_reference_for_capture();
+        set_phase(Phase::Editing);
+        for (int i = 0; i < 2 && !sim_.finished(); ++i) {
+            const TickFrame& frame = sim_.step();
+            board_.set_frame(&frame);
+            waveform_.set_state(expect_sequence(), target_start_tick(), level_.tick_budget,
+                                sim_.target_actual(target_uid_), sim_.first_error(),
+                                sim_.glitch_history());
+        }
+        set_phase(Phase::Running);
+        message_ = "运行中……两级非门把脉冲翻回亮，目标只看到一盏短灯。";
     } else if (capture_mode_ == "level5game") {
         progress_.unlocked = 5;
         load_level(4);
@@ -232,18 +462,34 @@ void App::run_capture() {
         screen_ = Screen::Menu;
     }
 
+    refresh_level_cards();
+    refresh_button_labels();
+    fade_ = 1.f;
+    overlay_anim_ = 1.f;
     capture_window(capture_path_);
 }
 
 bool App::capture_window(const std::string& path) {
     window_.setActive(true);
     for (int i = 0; i < 4; ++i) {
-        window_.clear(sf::Color(6, 9, 15));
+        window_.clear(theme::bg);
+        if (imgui_ok_) {
+            ImGui::SFML::SetCurrentWindow(window_);
+            ImGui::SFML::Update(sf::Vector2i(640, 360), sf::Vector2f(kW, kH),
+                                sf::seconds(1.f / 60.f));
+            apply_imgui_scale();
+        }
         draw();
         window_.display();
         sf::sleep(sf::milliseconds(40));
     }
-    window_.clear(sf::Color(6, 9, 15));
+    window_.clear(theme::bg);
+    if (imgui_ok_) {
+        ImGui::SFML::SetCurrentWindow(window_);
+        ImGui::SFML::Update(sf::Vector2i(640, 360), sf::Vector2f(kW, kH),
+                            sf::seconds(1.f / 60.f));
+        apply_imgui_scale();
+    }
     draw();
     window_.display();
 
@@ -277,17 +523,18 @@ void App::build_window_icon() {
 
 void App::build_ui() {
     menu_buttons_.clear();
-    menu_buttons_.push_back(Button{{80.f, 350.f, 210.f, 44.f}, "开始游戏", true, true});
-    menu_buttons_.push_back(Button{{80.f, 406.f, 210.f, 40.f}, "重置进度"});
-    menu_buttons_.push_back(Button{{80.f, 456.f, 210.f, 40.f}, "音效：开"});
-    menu_buttons_.push_back(Button{{80.f, 506.f, 210.f, 40.f}, "退出"});
+    menu_buttons_.push_back(Button{{72.f, 360.f, 232.f, 46.f}, "开始游戏", true, true, false, false, false, false, static_cast<unsigned>(theme::text_title)});
+    menu_buttons_.push_back(Button{{72.f, 418.f, 232.f, 38.f}, "重置进度", true, false, false, false, false, false, static_cast<unsigned>(theme::text_body)});
+    menu_buttons_.push_back(Button{{72.f, 466.f, 232.f, 38.f}, "音效：开", true, false, false, true, false, false, static_cast<unsigned>(theme::text_body)});
+    menu_buttons_.push_back(Button{{72.f, 514.f, 232.f, 38.f}, "设置", true, false, false, false, false, false, static_cast<unsigned>(theme::text_body)});
+    menu_buttons_.push_back(Button{{72.f, 562.f, 232.f, 38.f}, "退出", true, false, false, false, false, false, static_cast<unsigned>(theme::text_body)});
 
-    back_button_ = Button{{16.f, 14.f, 82.f, 32.f}, "返回", true, false, false, false, false, false, 14};
-    run_button_ = Button{{302.f, 600.f, 88.f, 34.f}, "运行", true, true};
-    retry_button_ = Button{{398.f, 600.f, 88.f, 34.f}, "重试"};
-    hint_button_ = Button{{494.f, 600.f, 88.f, 34.f}, "提示"};
-    speed_button_ = Button{{590.f, 600.f, 88.f, 34.f}, "1.0x"};
-    next_button_ = Button{{686.f, 600.f, 88.f, 34.f}, "下一关", false};
+    back_button_ = Button{{16.f, 16.f, 76.f, 32.f}, "返回", true, false, false, false, false, false, static_cast<unsigned>(theme::text_label)};
+    run_button_ = Button{{330.f, 604.f, 84.f, 34.f}, "运行", true, true, false, false, false, false, static_cast<unsigned>(theme::text_body)};
+    retry_button_ = Button{{422.f, 604.f, 84.f, 34.f}, "重试", true, false, false, false, false, false, static_cast<unsigned>(theme::text_small)};
+    hint_button_ = Button{{514.f, 604.f, 84.f, 34.f}, "提示", true, false, false, false, false, false, static_cast<unsigned>(theme::text_small)};
+    speed_button_ = Button{{606.f, 604.f, 84.f, 34.f}, "1.0x", true, false, false, true, false, false, static_cast<unsigned>(theme::text_small)};
+    next_button_ = Button{{698.f, 604.f, 84.f, 34.f}, "下一关", false, false, false, false, false, false, static_cast<unsigned>(theme::text_small)};
 
     board_.set_origin({342.f, 116.f});
     board_.set_tool("wire");
@@ -295,6 +542,50 @@ void App::build_ui() {
     board_.on_layout_changed = [this]() { on_layout_changed(); };
 
     overlay_buttons_.clear();
+    rebuild_settings_buttons();
+}
+
+void App::rebuild_settings_buttons() {
+    settings_buttons_.clear();
+    const DisplayMode modes[2] = {DisplayMode::Windowed, DisplayMode::Borderless};
+    for (int i = 0; i < 2; ++i) {
+        Button button;
+        button.rect = {368.f + i * 230.f, 208.f, 220.f, 38.f};
+        button.label = display_mode_name(modes[i]);
+        button.active = settings_.display_mode == modes[i];
+        button.font_size = static_cast<unsigned>(theme::text_small);
+        settings_buttons_.push_back(button);
+    }
+    const int sizes[4][2] = {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}};
+    for (int i = 0; i < 4; ++i) {
+        Button button;
+        button.rect = {368.f + i * 138.f, 284.f, 126.f, 34.f};
+        button.label = std::to_string(sizes[i][0]) + " × " +
+                       std::to_string(sizes[i][1]);
+        button.enabled = settings_.display_mode == DisplayMode::Windowed;
+        button.active = button.enabled && settings_.window_width == sizes[i][0] &&
+                        settings_.window_height == sizes[i][1];
+        button.font_size = static_cast<unsigned>(theme::text_small);
+        settings_buttons_.push_back(button);
+    }
+    Button splash;
+    splash.rect = {368.f, 348.f, 220.f, 36.f};
+    splash.label = settings_.splash_enabled ? "启动动画：开" : "启动动画：关";
+    splash.active = settings_.splash_enabled;
+    splash.font_size = static_cast<unsigned>(theme::text_small);
+    settings_buttons_.push_back(splash);
+
+    Button reset;
+    reset.rect = {368.f, 486.f, 126.f, 36.f};
+    reset.label = "恢复默认";
+    reset.font_size = static_cast<unsigned>(theme::text_small);
+    settings_buttons_.push_back(reset);
+
+    Button close;
+    close.rect = {790.f, 486.f, 126.f, 36.f};
+    close.label = "关闭";
+    close.font_size = static_cast<unsigned>(theme::text_small);
+    settings_buttons_.push_back(close);
 }
 
 void App::save_progress() {
@@ -306,10 +597,10 @@ void App::refresh_level_cards() {
     const auto& entries = repo_.entries();
     for (int i = 0; i < static_cast<int>(entries.size()) && i < 5; ++i) {
         Button card;
-        card.rect = {60.f + i * 232.f, 588.f, 216.f, 100.f};
+        card.rect = {560.f, 150.f + i * 78.f, 648.f, 68.f};
         card.label = entries[i].name;
         card.enabled = i < progress_.unlocked;
-        card.font_size = 18;
+        card.font_size = static_cast<unsigned>(theme::text_h3);
         card.hovered = false;
         level_cards_.push_back(card);
     }
@@ -320,11 +611,11 @@ void App::rebuild_game_level_buttons() {
     const auto& entries = repo_.entries();
     for (int i = 0; i < static_cast<int>(entries.size()) && i < 5; ++i) {
         Button button;
-        button.rect = {28.f, 96.f + i * 32.f, 190.f, 28.f};
+        button.rect = {26.f, 108.f + i * 32.f, 182.f, 28.f};
         button.label = entries[i].name;
         button.enabled = i < progress_.unlocked;
         button.active = i == current_index_;
-        button.font_size = 13;
+        button.font_size = static_cast<unsigned>(theme::text_small);
         game_level_buttons_.push_back(button);
     }
 }
@@ -351,11 +642,11 @@ void App::rebuild_palette() {
         }
         const std::string type = item.get<std::string>();
         Button button;
-        button.rect = {28.f, 288.f + i * 34.f, 190.f, 30.f};
+        button.rect = {26.f, 306.f + i * 34.f, 182.f, 30.f};
         button.label = ComponentRules::display_name(type);
         button.toggle = true;
         button.active = type == selected_tool_;
-        button.font_size = 13;
+        button.font_size = static_cast<unsigned>(theme::text_small);
         palette_buttons_.push_back(button);
         ++i;
     }
@@ -365,12 +656,15 @@ void App::rebuild_overlay_buttons() {
     overlay_buttons_.clear();
     const bool passed = phase_ == Phase::Passed;
     Button primary;
-    primary.rect = {390.f, 440.f, 150.f, 44.f};
+    primary.rect = {370.f, 458.f, 150.f, 44.f};
     primary.primary = true;
     Button secondary;
-    secondary.rect = {565.f, 440.f, 150.f, 44.f};
+    secondary.rect = {536.f, 458.f, 150.f, 44.f};
     Button third;
-    third.rect = {740.f, 440.f, 150.f, 44.f};
+    third.rect = {702.f, 458.f, 150.f, 44.f};
+    primary.font_size = static_cast<unsigned>(theme::text_subhead);
+    secondary.font_size = static_cast<unsigned>(theme::text_subhead);
+    third.font_size = static_cast<unsigned>(theme::text_subhead);
 
     if (passed) {
         primary.label = current_index_ + 1 < static_cast<int>(repo_.entries().size())
@@ -389,11 +683,12 @@ void App::rebuild_overlay_buttons() {
 }
 
 void App::refresh_button_labels() {
-    if (menu_buttons_.size() >= 4) {
+    if (menu_buttons_.size() >= 5) {
         menu_buttons_[0].label = "开始游戏";
         menu_buttons_[1].label = reset_confirm_ ? "再点一次确认" : "重置进度";
         menu_buttons_[2].label = sound_.muted() ? "音效：关" : "音效：开";
-        menu_buttons_[3].label = "退出";
+        menu_buttons_[3].label = "设置";
+        menu_buttons_[4].label = "退出";
     }
 
     if (phase_ == Phase::Running) {
@@ -440,6 +735,7 @@ void App::load_level(int index) {
     set_phase(Phase::Editing);
     refresh_button_labels();
     screen_ = Screen::Game;
+    fade_ = 0.f;
     menu_message_.clear();
     message_ = "从信号源开始，按住左键拖出灯槽，接到目标端口。";
     board_.set_editable(true);
@@ -512,6 +808,7 @@ void App::step_once() {
 
 void App::show_result_overlay() {
     overlay_visible_ = true;
+    overlay_anim_ = 0.f;
     overlay_title_ = phase_ == Phase::Passed ? "通过！" : "差一点";
     if (phase_ == Phase::Passed) {
         overlay_message_ = "第 " + std::to_string(sim_.completion_tick()) + " 拍完成。";
@@ -607,6 +904,7 @@ void App::next_level() {
 
 void App::back_to_menu() {
     screen_ = Screen::Menu;
+    fade_ = 0.f;
     overlay_visible_ = false;
     refresh_level_cards();
     refresh_button_labels();
@@ -662,7 +960,20 @@ void App::on_layout_changed() {
 }
 
 void App::update(float dt) {
+    if (splash_active_) {
+        if (capture_mode_.empty()) {
+            splash_time_ += dt;
+            if (splash_time_ >= 2.2f) {
+                splash_active_ = false;
+                fade_ = 0.f;
+            }
+        }
+        return;
+    }
     time_ += dt;
+    board_.update(dt);
+    fade_ = std::min(1.f, fade_ + dt / theme::duration_normal);
+    overlay_anim_ = std::min(1.f, overlay_anim_ + dt / theme::duration_slow);
     if (screen_ != Screen::Game || phase_ != Phase::Running || overlay_visible_) {
         return;
     }
@@ -677,7 +988,9 @@ void App::update(float dt) {
 }
 
 void App::draw() {
-    if (screen_ == Screen::Menu) {
+    if (splash_active_) {
+        draw_splash();
+    } else if (screen_ == Screen::Menu) {
         draw_menu();
     } else {
         draw_game();
@@ -685,189 +998,433 @@ void App::draw() {
             draw_overlay();
         }
     }
+    if (imgui_ok_) {
+        ImGui::SFML::Render(window_);
+    }
 }
+
+namespace {
+
+std::string level_tagline(int index) {
+    static const char* tags[] = {
+        "灯槽 · 每格 1 拍",
+        "非门 · 先灭后亮",
+        "双非门 · 偶次翻转",
+        "与门 · 同拍对齐",
+        "或门 · 合流",
+    };
+    if (index < 0 || index >= 5) return {};
+    return tags[index];
+}
+
+void draw_fade_overlay(ImDrawList* draw, float fade) {
+    if (draw == nullptr || fade >= 1.f) return;
+    const int alpha = static_cast<int>(std::clamp(1.f - fade, 0.f, 1.f) * 255.f);
+    draw->AddRectFilled({0.f, 0.f}, {1280.f, 720.f}, IM_COL32(10, 14, 20, alpha));
+}
+
+void draw_waveform_panel(ImDrawList* draw, const std::vector<int>& expect, int start_tick,
+                         int budget, const std::vector<int>& actual,
+                         const std::optional<ErrorInfo>& error,
+                         const std::vector<GlitchMark>& glitches, ImVec2 origin, float width) {
+    if (draw == nullptr) return;
+    budget = std::max(1, budget);
+    const float label_w = 38.f;
+    const float cell_w = std::clamp((width - label_w - 6.f) / static_cast<float>(budget),
+                                    5.f, 11.f);
+    const float y_target = origin.y + 16.f;
+    const float y_actual = y_target + 34.f;
+    const float bar_h = 15.f;
+    const float x0 = origin.x + label_w;
+
+    imgui_ui::text(draw, "目标", theme::text_micro, {origin.x, y_target}, theme::text_dim);
+    imgui_ui::text(draw, "实际", theme::text_micro, {origin.x, y_target + 18.f}, theme::text_dim);
+
+    for (int i = 0; i < budget; ++i) {
+        const float x = x0 + i * cell_w;
+        int expected = -1;
+        const int idx = i - start_tick;
+        if (idx >= 0 && idx < static_cast<int>(expect.size())) expected = expect[idx];
+        int observed = -1;
+        if (i < static_cast<int>(actual.size())) observed = actual[i];
+        const sf::Color expected_color = expected == 1 ? theme::gold
+                                        : expected == 0 ? theme::surface_hover
+                                                        : theme::bg_elevated;
+        const sf::Color observed_color = observed == 1 ? theme::teal
+                                        : observed == 0 ? theme::wire_low
+                                                        : theme::bg_elevated;
+        imgui_ui::panel(draw, {x, y_target}, {x + cell_w - 1.f, y_target + bar_h},
+                        expected_color, sf::Color(0, 0, 0, 0), 2.f, 0.f);
+        imgui_ui::panel(draw, {x, y_actual}, {x + cell_w - 1.f, y_actual + bar_h},
+                        observed_color, sf::Color(0, 0, 0, 0), 2.f, 0.f);
+    }
+
+    const float sx = x0 + start_tick * cell_w;
+    imgui_ui::vline(draw, sx, y_target - 3.f, y_actual + bar_h + 3.f,
+                    sf::Color(theme::gold.r, theme::gold.g, theme::gold.b, 150), 1.f);
+
+    if (error.has_value() && error->tick >= 0) {
+        const float ex = x0 + error->tick * cell_w;
+        draw->AddRect({ex - 1.f, y_target - 3.f}, {ex + cell_w, y_actual + bar_h + 3.f},
+                      imgui_ui::color(theme::danger), 2.f, ImDrawFlags_RoundCornersAll, 1.5f);
+    }
+
+    for (const GlitchMark& glitch : glitches) {
+        if (glitch.tick < 0) continue;
+        const float gx = x0 + glitch.tick * cell_w + cell_w * 0.5f;
+        imgui_ui::dot(draw, {gx, y_actual + bar_h + 9.f}, 2.5f, theme::danger);
+    }
+
+    const int step = budget <= 32 ? 4 : 8;
+    for (int i = 0; i < budget; i += step) {
+        imgui_ui::text(draw, std::to_string(i), theme::text_nano, {x0 + i * cell_w, origin.y + 72.f}, theme::text_dim);
+    }
+}
+
+}  // namespace
 
 void App::draw_background() {
-    sf::VertexArray gradient(sf::Quads, 4);
-    const sf::Color top(6, 9, 16);
-    const sf::Color bottom(13, 20, 35);
-    gradient[0] = sf::Vertex({0.f, 0.f}, top);
-    gradient[1] = sf::Vertex({kW, 0.f}, top);
-    gradient[2] = sf::Vertex({kW, kH}, bottom);
-    gradient[3] = sf::Vertex({0.f, kH}, bottom);
-    window_.draw(gradient);
-
-    for (float x = 0.f; x < kW; x += 64.f) {
-        ui::draw_line(window_, {x, 0.f}, {x, kH}, sf::Color(45, 70, 110, 18), 1.f);
-    }
-    for (float y = 0.f; y < kH; y += 64.f) {
-        ui::draw_line(window_, {0.f, y}, {kW, y}, sf::Color(45, 70, 110, 18), 1.f);
-    }
-
-    if (screen_ == Screen::Menu) {
-        draw_lamp_river();
-    }
-}
-
-void App::draw_lamp_river() {
-    for (int i = 0; i < 18; ++i) {
-        const float x = 520.f + i * 40.f;
-        const float y = 330.f + std::sin(time_ * 0.55f + i * 0.55f) * 56.f;
-        const float pulse = 0.65f + 0.35f * std::sin(time_ * 1.8f + i * 0.7f);
-        ui::fill_circle(window_, {x, y}, 3.8f * pulse, sf::Color(255, 210, 110, 210));
-        if (i > 0) {
-            const float px = 520.f + (i - 1) * 40.f;
-            const float py = 330.f + std::sin(time_ * 0.55f + (i - 1) * 0.55f) * 56.f;
-            ui::draw_line(window_, {px, py}, {x, y}, sf::Color(255, 190, 70, 26), 1.f);
-        }
-    }
+    ui::fill_rect(window_, {0.f, 0.f, kW, kH}, theme::bg);
+    // 棋盘外框由 SFML 绘制，ImGui 只负责其上的界面层，避免整屏 overdraw。
+    ui::draw_rounded_rect(window_, {330.f, 104.f, 472.f, 472.f}, theme::radius_lg,
+                          theme::bg_elevated, theme::border, 1.f);
 }
 
 void App::draw_button(const Button& button) {
-    if (button.rect.width <= 0.f || button.rect.height <= 0.f) {
-        return;
+    if (!imgui_ok_ || button.rect.width <= 0.f || button.rect.height <= 0.f) return;
+    ImDrawList* draw = ui_draw_ != nullptr ? ui_draw_ : ImGui::GetForegroundDrawList();
+    sf::FloatRect rect = button.rect;
+    const bool pressed = button.enabled && button.hovered &&
+                         sf::Mouse::isButtonPressed(sf::Mouse::Left);
+    if (pressed) {
+        rect.top += 1.f;
+    } else if (button.enabled && button.hovered) {
+        rect.top -= 1.f;
     }
-    sf::Color fill = kButton;
-    sf::Color border = sf::Color(64, 84, 120);
-    sf::Color text = kText;
+
+    sf::Color fill = theme::surface_alt;
+    sf::Color border = theme::border;
+    sf::Color label = theme::text;
     if (!button.enabled) {
-        fill = sf::Color(18, 23, 35);
-        border = sf::Color(36, 44, 60);
-        text = sf::Color(76, 86, 108);
+        fill = theme::bg_elevated;
+        border = theme::border;
+        label = theme::text_dim;
     } else if (button.primary) {
-        fill = button.hovered ? sf::Color(255, 216, 130) : sf::Color(255, 196, 80);
-        border = sf::Color(255, 224, 160);
-        text = sf::Color(24, 28, 38);
+        fill = pressed ? theme::gold : (button.hovered ? theme::gold_bright : theme::gold);
+        border = theme::gold_bright;
+        label = theme::bg;
     } else if (button.danger) {
-        fill = button.hovered ? sf::Color(92, 38, 44) : sf::Color(64, 30, 36);
-        border = sf::Color(190, 75, 78);
-        text = sf::Color(255, 190, 190);
-    } else {
-        if (button.hovered) {
-            fill = kButtonHover;
-        }
-        if (button.active) {
-            fill = sf::Color(48, 62, 92);
-            border = kGold;
-        }
+        fill = button.hovered ? sf::Color(55, 32, 38) : theme::surface_alt;
+        border = theme::danger;
+        label = theme::danger;
+    } else if (button.active) {
+        fill = theme::surface_hover;
+        border = theme::gold;
+        label = theme::gold;
+    } else if (button.hovered) {
+        fill = theme::surface_hover;
+        border = theme::border_strong;
     }
-    ui::draw_rounded_rect(window_, button.rect, 8.f, fill, border, 1.5f);
-    ui::draw_text_centered(window_, font_, button.label, button.font_size, button.rect, text);
+
+    imgui_ui::panel(draw, {rect.left, rect.top}, {rect.left + rect.width, rect.top + rect.height},
+                    fill, border, theme::radius_md, button.active ? theme::border_active
+                                                                  : theme::border_thin);
+    imgui_ui::text_centered(draw, button.label, static_cast<float>(button.font_size),
+                            {rect.left + rect.width * 0.5f,
+                             rect.top + rect.height * 0.5f},
+                            label);
 }
 
 void App::draw_panel(const sf::FloatRect& rect) {
-    ui::draw_rounded_rect(window_, rect, 10.f, kPanel, kPanelBorder, 1.f);
+    if (!imgui_ok_) return;
+    ImDrawList* draw = ui_draw_ != nullptr ? ui_draw_ : ImGui::GetForegroundDrawList();
+    imgui_ui::panel(draw, {rect.left, rect.top},
+                    {rect.left + rect.width, rect.top + rect.height}, theme::surface,
+                    theme::border, theme::radius_lg, theme::border_thin);
 }
 
 void App::draw_level_card(const Button& button, int index) {
-    sf::Color fill = sf::Color(20, 27, 43);
-    sf::Color border = sf::Color(48, 63, 90);
-    if (button.enabled) {
-        fill = sf::Color(23, 31, 49);
-        border = button.hovered ? sf::Color(255, 214, 120) : sf::Color(70, 92, 130);
-    }
-    ui::draw_rounded_rect(window_, button.rect, 12.f, fill, border, button.hovered ? 2.f : 1.5f);
+    if (!imgui_ok_) return;
+    ImDrawList* draw = ui_draw_ != nullptr ? ui_draw_ : ImGui::GetForegroundDrawList();
+    sf::FloatRect rect = button.rect;
+    if (button.enabled && button.hovered) rect.top -= 1.f;
 
     const std::string id = repo_.entries()[index].id;
     const bool completed = progress_.is_completed(id);
-    const std::string status = completed ? "已通过" : (button.enabled ? "可挑战" : "未解锁");
-    const sf::Color status_color = completed ? kGold : (button.enabled ? kInPort : kTextDim);
-
-    ui::draw_text(window_, font_, number2(index + 1), 22,
-                  {button.rect.left + 16.f, button.rect.top + 10.f},
-                  button.enabled ? kGold : kTextDim);
-    ui::draw_text(window_, font_, button.label, 19,
-                  {button.rect.left + 58.f, button.rect.top + 12.f},
-                  button.enabled ? kText : kTextDim);
-    ui::draw_text(window_, font_, status, 12,
-                  {button.rect.left + 16.f, button.rect.top + 68.f}, status_color);
-
     const int best = progress_.stars_for(id);
-    ui::draw_star_row(window_, button.rect.left + button.rect.width - 38.f,
-                      button.rect.top + 78.f, best, 3, 5.5f, 14.f,
-                      kGold, sf::Color(76, 92, 118));
+    const bool enabled = button.enabled;
+    int recommended = -1;
+    for (int i = 0; i < static_cast<int>(level_cards_.size()) && i < progress_.unlocked; ++i) {
+        if (!progress_.is_completed(repo_.entries()[i].id)) {
+            recommended = i;
+            break;
+        }
+    }
+    const bool is_recommended = enabled && index == recommended;
+    const sf::Color fill = !enabled ? theme::bg_elevated
+                          : button.hovered ? theme::surface_hover
+                                           : theme::surface;
+    const sf::Color border = !enabled ? theme::border
+                           : button.hovered ? theme::gold
+                           : is_recommended ? theme::teal
+                                            : theme::border_strong;
+    imgui_ui::panel(draw, {rect.left, rect.top}, {rect.left + rect.width, rect.top + rect.height},
+                    fill, border, theme::radius_md,
+                    button.hovered || is_recommended ? theme::border_active
+                                                     : theme::border_thin);
+
+    const sf::Color accent = !enabled ? theme::border
+                            : is_recommended ? theme::teal
+                            : (completed ? theme::text_muted : theme::gold);
+    draw->AddRectFilled({rect.left + 1.f, rect.top + 12.f},
+                        {rect.left + 4.f, rect.top + rect.height - 12.f},
+                        imgui_ui::color(accent), 2.f);
+    imgui_ui::text(draw, number2(index + 1), theme::text_number, {rect.left + 18.f, rect.top + 17.f}, enabled ? (completed ? theme::teal : theme::gold) : theme::text_dim);
+    imgui_ui::text(draw, button.label, theme::text_h3, {rect.left + 64.f, rect.top + 13.f}, enabled ? theme::text : theme::text_dim);
+    imgui_ui::text(draw, level_tagline(index), theme::text_label, {rect.left + 64.f, rect.top + 40.f}, enabled ? theme::text_muted : theme::text_dim);
+
+    const std::string status = completed ? "已通过"
+                                : is_recommended ? "继续"
+                                : (enabled ? "可挑战" : "未解锁");
+    const sf::Color status_color = completed ? theme::teal
+                                  : is_recommended ? theme::teal
+                                  : (enabled ? theme::text_muted : theme::text_dim);
+    imgui_ui::text_right(draw, status, theme::text_caption, rect.left + rect.width - 18.f, rect.top + 16.f, status_color);
+    imgui_ui::stars(draw, rect.left + rect.width - 46.f, rect.top + 46.f, best, 3,
+                    5.5f, 14.f, theme::gold, theme::border);
 }
 
 void App::draw_game_level_button(const Button& button, int index) {
-    sf::Color fill = button.active ? sf::Color(44, 58, 88) : sf::Color(25, 33, 51);
-    sf::Color border = button.active ? kGold : sf::Color(48, 63, 90);
-    if (!button.enabled) {
-        fill = sf::Color(18, 23, 35);
-        border = sf::Color(36, 44, 60);
-    } else if (button.hovered) {
-        fill = sf::Color(36, 47, 71);
+    if (!imgui_ok_) return;
+    ImDrawList* draw = ui_draw_ != nullptr ? ui_draw_ : ImGui::GetForegroundDrawList();
+    sf::FloatRect rect = button.rect;
+    if (button.enabled && button.hovered) rect.top -= 1.f;
+    const sf::Color fill = !button.enabled ? theme::bg_elevated
+                          : button.active ? theme::surface_hover
+                          : button.hovered ? theme::surface_alt
+                                           : theme::surface;
+    const sf::Color border = button.active ? theme::gold
+                             : button.hovered ? theme::border_strong
+                                              : theme::border;
+    imgui_ui::panel(draw, {rect.left, rect.top}, {rect.left + rect.width, rect.top + rect.height},
+                    fill, border, theme::radius_sm, button.active ? theme::border_active
+                                                                  : theme::border_thin);
+    if (button.active) {
+        draw->AddRectFilled({rect.left + 1.f, rect.top + 7.f},
+                            {rect.left + 3.f, rect.top + rect.height - 7.f},
+                            imgui_ui::color(theme::gold), 1.f);
     }
-    ui::draw_rounded_rect(window_, button.rect, 6.f, fill, border, button.active ? 2.f : 1.f);
-    const std::string label = std::to_string(index + 1) + "  " + button.label;
-    ui::draw_text(window_, font_, label, 13,
-                  {button.rect.left + 10.f, button.rect.top + 5.f},
-                  button.enabled ? (button.active ? kGold : kText) : kTextDim);
+    const std::string number = number2(index + 1);
+    imgui_ui::text(draw, number, theme::text_micro, {rect.left + 8.f, rect.top + 8.f}, button.enabled ? theme::text_dim : theme::text_dim);
+    imgui_ui::text(draw, button.label, theme::text_label, {rect.left + 28.f, rect.top + 7.f}, button.enabled ? (button.active ? theme::gold : theme::text)
+                                  : theme::text_dim);
     const int best = progress_.stars_for(repo_.entries()[index].id);
-    ui::draw_star_row(window_, button.rect.left + button.rect.width - 36.f,
-                      button.rect.top + button.rect.height * 0.5f, best, 3, 4.5f, 11.f,
-                      kGold, sf::Color(76, 92, 118));
+    imgui_ui::stars(draw, rect.left + rect.width - 32.f, rect.top + rect.height * 0.5f,
+                    best, 3, 3.5f, 9.f, theme::gold, theme::border);
 }
 
 void App::draw_menu() {
-    draw_background();
+    if (!imgui_ok_) return;
+    ui_draw_ = ImGui::GetBackgroundDrawList();
+    ImDrawList* draw = ui_draw_;
+    draw->AddRectFilled({0.f, 0.f}, {kW, kH}, imgui_ui::color(theme::bg));
+    draw->AddRectFilled({520.f, 0.f}, {kW, kH}, imgui_ui::color(theme::bg_elevated));
+    imgui_ui::vline(draw, 520.f, 0.f, kH, theme::border, 1.f);
 
-    ui::draw_text(window_, font_, "灯河", 82, {78.f, 104.f}, kGold);
-    ui::draw_text(window_, font_, "RIVER OF LAMPS", 24, {84.f, 212.f}, sf::Color(150, 186, 235));
-    ui::draw_text(window_, font_, "即时逻辑布线解谜", 16, {84.f, 250.f}, sf::Color(180, 200, 228));
-    ui::draw_text(window_, font_, "拖拽灯槽 · 空格运行", 13, {84.f, 300.f}, kTextDim);
-    ui::draw_text(window_, font_, "H 提示 · Ctrl+Z 撤销", 13, {84.f, 320.f}, kTextDim);
-
-    for (const Button& button : menu_buttons_) {
-        draw_button(button);
+    // 极轻的氛围线：一条流动的金色细线，不叠粒子，不与文字抢层级。
+    const float wave = std::sin(time_ * 0.45f) * 18.f;
+    draw->AddBezierCubic({278.f, 120.f}, {352.f, 250.f + wave}, {232.f, 440.f - wave},
+                         {300.f, 650.f}, imgui_ui::color(sf::Color(230, 184, 92, 44)), 1.5f);
+    for (int i = 0; i < 5; ++i) {
+        const float t = 0.16f + i * 0.17f;
+        const float u = 1.f - t;
+        const float x = u * u * u * 278.f + 3.f * u * u * t * 352.f +
+                        3.f * u * t * t * 232.f + t * t * t * 300.f;
+        const float y = u * u * u * 120.f + 3.f * u * u * t * (250.f + wave) +
+                        3.f * u * t * t * (440.f - wave) + t * t * t * 650.f;
+        imgui_ui::dot(draw, {x, y}, 2.5f, sf::Color(230, 184, 92, 105));
     }
 
+    imgui_ui::text(draw, "灯河", theme::text_display, {72.f, 92.f}, theme::gold);
+    imgui_ui::text(draw, "RIVER OF LAMPS", theme::text_body_lg, {78.f, 184.f}, theme::text_muted);
+    imgui_ui::hline(draw, 78.f, 246.f, 212.f, theme::gold, 2.f);
+    imgui_ui::text(draw, "即时逻辑布线解谜", theme::text_h3_lg, {78.f, 232.f}, theme::text);
+    imgui_ui::text(draw, "拖动灯槽，让信号按拍抵达目标。", theme::text_body, {78.f, 282.f}, theme::text_muted);
+    imgui_ui::text(draw, "每格延迟一拍，门零延迟。", theme::text_body, {78.f, 304.f}, theme::text_muted);
+
+    for (const Button& button : menu_buttons_) draw_button(button);
+
+    imgui_ui::text(draw, "选择关卡", theme::text_h2, {560.f, 96.f}, theme::text);
+    imgui_ui::text(draw, "LEVELS  /  01—05", theme::text_caption, {560.f, 128.f}, theme::text_dim);
+    imgui_ui::hline(draw, 560.f, 1208.f, 146.f, theme::border, 1.f);
     for (int i = 0; i < static_cast<int>(level_cards_.size()); ++i) {
         draw_level_card(level_cards_[i], i);
     }
 
+    const int unlocked = std::min(static_cast<int>(level_cards_.size()), progress_.unlocked);
+    int total_stars = 0;
+    for (const auto& entry : repo_.entries()) total_stars += progress_.stars_for(entry.id);
+    imgui_ui::text(draw, "已通过  " + std::to_string(progress_.completed.size()) +
+                            " / " + std::to_string(level_cards_.size()), theme::text_caption, {560.f, 552.f}, theme::text_dim);
+    imgui_ui::text_right(draw, "已解锁 " + std::to_string(unlocked) + "  ·  星级 " +
+                                   std::to_string(total_stars) + " / " +
+                                   std::to_string(level_cards_.size() * 3), theme::text_caption, 1208.f, 552.f, theme::text_dim);
+
     if (!menu_message_.empty()) {
-        ui::draw_wrapped_text(window_, font_, menu_message_, 12,
-                              {60.f, 560.f, 1100.f, 20.f}, kTextDim);
+        imgui_ui::wrapped_text(draw, menu_message_, theme::text_label, {72.f, 616.f}, 420.f, 34.f, theme::text_dim);
     }
-    ui::draw_text(window_, font_, "C++ / SFML 2.6 · 独立 Windows 版", 11,
-                  {1030.f, 700.f}, sf::Color(82, 100, 128));
+    imgui_ui::text(draw, "v1.0.1  ·  WINDOWS x64", theme::text_caption, {72.f, 674.f}, theme::text_dim);
+    imgui_ui::text_right(draw, "C++20 / SFML 2.6.1", theme::text_caption, 1208.f, 674.f, theme::text_dim);
+    if (settings_open_) {
+        draw_settings_panel();
+    }
+    draw_fade_overlay(draw, fade_);
+}
+
+void App::draw_settings_panel() {
+    if (!imgui_ok_) return;
+    ImDrawList* draw = ui_draw_ != nullptr ? ui_draw_ : ImGui::GetBackgroundDrawList();
+    draw->AddRectFilled({0.f, 0.f}, {kW, kH}, imgui_ui::color(theme::overlay));
+    imgui_ui::panel(draw, {340.f, 94.f}, {940.f, 564.f}, theme::surface,
+                    theme::border_strong, theme::radius_lg, 1.f);
+    draw->AddRectFilled({340.f, 94.f}, {343.f, 564.f}, imgui_ui::color(theme::gold), 2.f);
+
+    imgui_ui::text(draw, "显示与启动", theme::text_h3, {368.f, 118.f}, theme::gold);
+    imgui_ui::text(draw, "DISPLAY / STARTUP", theme::text_caption, {370.f, 146.f},
+                   theme::text_dim);
+    imgui_ui::hline(draw, 368.f, 912.f, 174.f, theme::border, 1.f);
+
+    imgui_ui::text(draw, "显示模式", theme::text_label, {368.f, 186.f}, theme::text_muted);
+    for (int i = 0; i < 2; ++i) draw_button(settings_buttons_[i]);
+
+    imgui_ui::text(draw, "窗口分辨率", theme::text_label, {368.f, 264.f}, theme::text_muted);
+    for (int i = 2; i < 6; ++i) draw_button(settings_buttons_[i]);
+    if (settings_.display_mode != DisplayMode::Windowed) {
+        const sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+        imgui_ui::text(draw, "按桌面分辨率：" + std::to_string(desktop.width) + " × " +
+                                std::to_string(desktop.height),
+                       theme::text_caption, {368.f, 324.f}, theme::text_dim);
+    }
+
+    draw_button(settings_buttons_[6]);
+    imgui_ui::text(draw, "全屏使用无边框窗口，不切换桌面显示模式。", theme::text_caption,
+                   {368.f, 392.f}, theme::text_dim);
+    imgui_ui::text(draw, "显示模式与分辨率在下一次启动时生效。", theme::text_caption,
+                   {368.f, 410.f}, theme::text_dim);
+    std::string current_resolution;
+    if (settings_.display_mode == DisplayMode::Windowed) {
+        current_resolution = std::to_string(settings_.window_width) + " × " +
+                             std::to_string(settings_.window_height);
+    } else {
+        const sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+        current_resolution = std::to_string(desktop.width) + " × " +
+                             std::to_string(desktop.height);
+    }
+    imgui_ui::text(draw, "当前：" + std::string(display_mode_name(settings_.display_mode)) +
+                            "  ·  " + current_resolution,
+                   theme::text_body, {368.f, 438.f}, theme::text_muted);
+    if (restart_required_) {
+        imgui_ui::text(draw, "设置已保存，重启后应用。", theme::text_label,
+                       {368.f, 460.f}, theme::gold);
+    }
+    draw_button(settings_buttons_[7]);
+    draw_button(settings_buttons_[8]);
+}
+
+void App::draw_splash() {
+    if (!imgui_ok_) return;
+    ui_draw_ = ImGui::GetForegroundDrawList();
+    ImDrawList* draw = ui_draw_;
+    draw->AddRectFilled({0.f, 0.f}, {kW, kH}, imgui_ui::color(theme::bg));
+    const float t = std::clamp(splash_time_ / 2.2f, 0.f, 1.f);
+    const float in = theme::ease_out(std::min(1.f, splash_time_ / 0.55f));
+    const int alpha = static_cast<int>(255.f * in);
+    const float rise = (1.f - in) * 14.f;
+
+    draw->AddRectFilled({80.f, 80.f}, {1200.f, 82.f},
+                        imgui_ui::color(sf::Color(theme::border.r, theme::border.g,
+                                                  theme::border.b, alpha / 3)));
+    imgui_ui::text(draw, "RIVER OF LAMPS", theme::text_label, {80.f, 96.f}, sf::Color(theme::text_dim.r, theme::text_dim.g, theme::text_dim.b,
+                             static_cast<std::uint8_t>(alpha)));
+    imgui_ui::text(draw, "灯河", theme::text_display, {78.f, 210.f + rise},
+                   sf::Color(theme::gold.r, theme::gold.g, theme::gold.b,
+                             static_cast<std::uint8_t>(alpha)));
+    imgui_ui::hline(draw, 80.f, 80.f + 360.f * theme::ease_out(t), 360.f,
+                    sf::Color(theme::gold.r, theme::gold.g, theme::gold.b,
+                              static_cast<std::uint8_t>(alpha)), 2.f);
+    imgui_ui::text(draw, "即时逻辑布线解谜", theme::text_h3, {82.f, 380.f}, sf::Color(theme::text.r, theme::text.g, theme::text.b,
+                             static_cast<std::uint8_t>(alpha)));
+    imgui_ui::text(draw, "灯槽 · 门 · 拍", theme::text_label, {82.f, 414.f}, sf::Color(theme::text_dim.r, theme::text_dim.g, theme::text_dim.b,
+                             static_cast<std::uint8_t>(alpha)));
+
+    const sf::Color line_color(theme::border.r, theme::border.g, theme::border.b,
+                               static_cast<std::uint8_t>(alpha / 2));
+    for (int i = 0; i < 8; ++i) {
+        const float x = 760.f + i * 48.f;
+        const float h = 18.f + 26.f * (0.5f + 0.5f * std::sin(t * 6.f + i));
+        imgui_ui::line(draw, {x, 560.f - h}, {x, 560.f}, line_color, 2.f);
+    }
+    imgui_ui::progress(draw, {80.f, 650.f}, {360.f, 653.f}, t,
+                       theme::surface_hover, theme::gold);
+    imgui_ui::text_right(draw, "点击或任意键跳过", theme::text_caption, 1200.f, 648.f, theme::text_dim);
 }
 
 void App::draw_game() {
     draw_background();
+    board_.draw(window_, font_);
+    if (!imgui_ok_) return;
+    ui_draw_ = ImGui::GetForegroundDrawList();
+    ImDrawList* draw = ui_draw_;
 
+    draw->AddRectFilled({0.f, 0.f}, {kW, 64.f}, imgui_ui::color(theme::surface));
+    imgui_ui::hline(draw, 0.f, kW, 64.f, theme::border, 1.f);
     draw_button(back_button_);
-    ui::draw_text(window_, font_, status_text(), 15, {112.f, 20.f}, kText);
+    imgui_ui::text(draw, "RIVER OF LAMPS", theme::text_micro, {112.f, 11.f}, theme::text_dim);
+    imgui_ui::text(draw, "第 " + number2(current_index_ + 1) + " 关  ·  " + level_name(), theme::text_title_lg, {112.f, 27.f}, theme::text);
+
+    const int tick = sim_.tick() >= 0 ? sim_.tick() : 0;
+    imgui_ui::text(draw, "拍  " + std::to_string(tick) + " / " +
+                            std::to_string(level_.tick_budget), theme::text_caption, {430.f, 12.f}, theme::text_muted);
+    imgui_ui::progress(draw, {430.f, 37.f}, {730.f, 41.f},
+                       static_cast<float>(tick + 1) / std::max(1, level_.tick_budget),
+                       theme::surface_hover, theme::gold);
+    imgui_ui::text(draw, "TICK", theme::text_nano, {430.f, 48.f}, theme::text_dim);
+    imgui_ui::text(draw, "元件", theme::text_micro, {790.f, 12.f}, theme::text_dim);
+    imgui_ui::text(draw, std::to_string(graph_.count_player_functional()) + " / " +
+                            std::to_string(level_.max_components), theme::text_small, {790.f, 25.f}, theme::text);
+    imgui_ui::text_right(draw, "v1.0.1", theme::text_micro, 1248.f, 28.f, theme::text_dim);
 
     const std::string teach = teach_text();
     if (!teach.empty()) {
-        draw_panel({244.f, 62.f, 644.f, 36.f});
-        ui::draw_wrapped_text(window_, font_, teach, 12,
-                              {256.f, 69.f, 620.f, 26.f}, sf::Color(214, 226, 248));
+        imgui_ui::panel(draw, {244.f, 66.f}, {888.f, 102.f}, theme::surface_alt, theme::border,
+                        theme::radius_sm, 1.f);
+        draw->AddRectFilled({244.f, 66.f}, {247.f, 102.f}, imgui_ui::color(theme::gold), 1.f);
+        imgui_ui::wrapped_text(draw, teach, theme::text_caption, {256.f, 71.f}, 620.f, 28.f, theme::text_muted);
     }
 
-    draw_panel({16.f, 60.f, 214.f, 648.f});
-    draw_panel({902.f, 60.f, 362.f, 648.f});
-    draw_panel({330.f, 104.f, 472.f, 472.f});
+    draw_panel({16.f, 72.f, 206.f, 632.f});
+    draw_panel({906.f, 72.f, 358.f, 632.f});
 
-    ui::draw_text(window_, font_, "关卡", 15, {28.f, 70.f}, sf::Color(170, 190, 220));
+    imgui_ui::text(draw, "关卡", theme::text_label, {28.f, 84.f}, theme::text_dim);
     for (int i = 0; i < static_cast<int>(game_level_buttons_.size()); ++i) {
         draw_game_level_button(game_level_buttons_[i], i);
     }
-
-    ui::draw_text(window_, font_, "元件", 15, {28.f, 262.f}, sf::Color(170, 190, 220));
-    for (const Button& button : palette_buttons_) {
-        draw_button(button);
-    }
-
+    imgui_ui::hline(draw, 28.f, 206.f, 278.f, theme::border, 1.f);
+    imgui_ui::text(draw, "工具", theme::text_label, {28.f, 292.f}, theme::text_dim);
+    for (const Button& button : palette_buttons_) draw_button(button);
+    imgui_ui::text(draw, "提示", theme::text_caption, {28.f, 360.f}, theme::text_dim);
     if (hint_visible_) {
-        ui::draw_wrapped_text(window_, font_, hint_text(), 12,
-                              {28.f, 334.f, 190.f, 330.f}, sf::Color(150, 175, 215));
+        imgui_ui::wrapped_text(draw, hint_text(), theme::text_caption, {28.f, 378.f}, 172.f, 160.f, theme::text_muted);
     } else {
-        ui::draw_text(window_, font_, "按 H 查看提示", 12, {28.f, 338.f}, kTextDim);
+        imgui_ui::text(draw, "按 H 查看提示", theme::text_caption, {28.f, 378.f}, theme::text_dim);
     }
-
-    board_.draw(window_, font_);
+    imgui_ui::hline(draw, 28.f, 206.f, 556.f, theme::border, 1.f);
+    imgui_ui::text(draw, "操作", theme::text_micro, {28.f, 570.f}, theme::text_dim);
+    imgui_ui::text(draw, "空格   运行 / 暂停", theme::text_caption, {28.f, 590.f}, theme::text_muted);
+    imgui_ui::text(draw, "H       提示", theme::text_caption, {28.f, 610.f}, theme::text_muted);
+    imgui_ui::text(draw, "Ctrl+Z  撤销", theme::text_caption, {28.f, 630.f}, theme::text_muted);
+    imgui_ui::text(draw, "Esc     返回 / 暂停", theme::text_caption, {28.f, 650.f}, theme::text_muted);
+    imgui_ui::text(draw, "灯槽不占元件", theme::text_micro, {28.f, 682.f}, theme::text_dim);
 
     draw_button(run_button_);
     draw_button(retry_button_);
@@ -875,49 +1432,119 @@ void App::draw_game() {
     draw_button(speed_button_);
     draw_button(next_button_);
 
-    ui::draw_text(window_, font_, "目标序列", 15, {918.f, 74.f}, sf::Color(170, 190, 220));
-    ui::draw_wrapped_text(window_, font_, target_label(), 13,
-                          {918.f, 98.f, 330.f, 42.f}, sf::Color(245, 218, 150));
-    waveform_.draw(window_, font_, {916.f, 142.f, 336.f, 210.f});
+    imgui_ui::text(draw, "目标", theme::text_title, {920.f, 84.f}, theme::text);
+    imgui_ui::text_right(draw, "TARGET", theme::text_micro, 1248.f, 90.f, theme::text_dim);
+    const std::vector<int> expect = expect_sequence();
+    imgui_ui::text(draw, "第 " + std::to_string(target_start_tick()) + " 拍起  ·  " +
+                            std::to_string(expect.size()) + " 拍", theme::text_caption, {920.f, 110.f}, theme::text_muted);
+    for (int i = 0; i < static_cast<int>(expect.size()) && i < 6; ++i) {
+        const sf::Color fill = expect[i] == 1 ? theme::gold : theme::surface_alt;
+        const sf::Color text_color = expect[i] == 1 ? theme::bg : theme::text_muted;
+        imgui_ui::chip(draw, {920.f + i * 34.f, 132.f}, {946.f + i * 34.f, 154.f}, fill, theme::border, expect[i] == 1 ? "亮" : "灭", theme::text_caption, text_color);
+    }
+    imgui_ui::hline(draw, 920.f, 1248.f, 174.f, theme::border, 1.f);
 
-    ui::draw_text(window_, font_, "反馈", 15, {918.f, 378.f}, sf::Color(170, 190, 220));
-    ui::draw_wrapped_text(window_, font_, message_, 13,
-                          {918.f, 402.f, 330.f, 180.f}, sf::Color(180, 205, 240));
+    draw_waveform_panel(draw, expect, target_start_tick(), level_.tick_budget,
+                        sim_.target_actual(target_uid_), sim_.first_error(),
+                        sim_.glitch_history(), {920.f, 186.f}, 328.f);
 
+    if (level_.stars.enabled()) {
+        imgui_ui::text(draw, "星级窗口", theme::text_micro, {920.f, 292.f}, theme::text_dim);
+        const int thresholds[3] = {level_.stars.three, level_.stars.two, level_.stars.one};
+        const int filled[3] = {3, 2, 1};
+        const sf::Color colors[3] = {theme::gold, theme::teal, theme::text_muted};
+        for (int i = 0; i < 3; ++i) {
+            const float y = 312.f + i * 22.f;
+            imgui_ui::stars(draw, 936.f, y, filled[i], 3, 3.5f, 9.f, colors[i],
+                            theme::border);
+            imgui_ui::text(draw, std::to_string(3 - i) + " 星", theme::text_caption, {966.f, y - 6.f}, colors[i]);
+            imgui_ui::text_right(draw, "完成 ≤ " + std::to_string(thresholds[i]) + " 拍", theme::text_caption, 1248.f, y - 6.f, theme::text_muted);
+        }
+    }
+    imgui_ui::hline(draw, 920.f, 1248.f, 380.f, theme::border, 1.f);
+    imgui_ui::text(draw, "反馈", theme::text_label, {920.f, 394.f}, theme::text_dim);
+    imgui_ui::wrapped_text(draw, message_, theme::text_label, {920.f, 416.f}, 328.f, 190.f, theme::text);
+    imgui_ui::hline(draw, 920.f, 1248.f, 626.f, theme::border, 1.f);
     const int done = static_cast<int>(progress_.completed.size());
     const int total = static_cast<int>(repo_.entries().size());
-    ui::draw_text(window_, font_, "已通过 " + std::to_string(done) + " / " + std::to_string(total),
-                  12, {918.f, 654.f}, kTextDim);
+    imgui_ui::text(draw, "已通过 " + std::to_string(done) + " / " + std::to_string(total), theme::text_caption, {920.f, 642.f}, theme::text_dim);
     const int best = progress_.stars_for(level_.id);
-    ui::draw_text(window_, font_, "本关最佳 " + std::to_string(best) + " 星", 11,
-                  {918.f, 674.f}, sf::Color(120, 138, 168));
+    imgui_ui::text(draw, "本关最佳", theme::text_micro, {920.f, 668.f}, theme::text_dim);
+    imgui_ui::stars(draw, 1002.f, 672.f, best, 3, 4.f, 11.f, theme::gold, theme::border);
+
+    draw_fade_overlay(draw, fade_);
 }
 
 void App::draw_overlay() {
-    ui::fill_rect(window_, {0.f, 0.f, kW, kH}, sf::Color(2, 4, 8, 185));
-    ui::draw_rounded_rect(window_, {360.f, 200.f, 560.f, 320.f}, 16.f,
-                          sf::Color(15, 21, 35), sf::Color(70, 92, 130), 1.5f);
-    const sf::Color title_color = phase_ == Phase::Passed ? kGold : kRed;
-    ui::draw_text_centered(window_, font_, overlay_title_, 34,
-                           {360.f, 216.f, 560.f, 50.f}, title_color);
-
-    if (phase_ == Phase::Passed) {
-        ui::draw_star_row(window_, 640.f, 282.f, sim_.stars(), 3, 16.f, 42.f,
-                          kGold, sf::Color(102, 122, 155));
-        ui::draw_wrapped_text(window_, font_, overlay_message_, 15,
-                              {392.f, 314.f, 496.f, 96.f}, kText);
+    if (!imgui_ok_) return;
+    ui_draw_ = ImGui::GetForegroundDrawList();
+    ImDrawList* draw = ui_draw_;
+    draw->AddRectFilled({0.f, 0.f}, {kW, kH}, imgui_ui::color(theme::overlay));
+    const bool passed = phase_ == Phase::Passed;
+    const float anim = theme::ease_out(overlay_anim_);
+    const ImVec2 min{340.f, 160.f};
+    const ImVec2 max{940.f, 550.f};
+    imgui_ui::panel(draw, min, max, theme::surface, theme::border_strong,
+                    theme::radius_lg, 1.f);
+    draw->AddRectFilled({min.x, min.y}, {max.x, min.y + 3.f},
+                        imgui_ui::color(passed ? theme::gold : theme::danger), 2.f);
+    imgui_ui::text(draw, "第 " + number2(current_index_ + 1) + " 关  ·  " + level_name(), theme::text_micro, {min.x + 22.f, min.y + 16.f}, theme::text_dim);
+    imgui_ui::text_right(draw, passed ? "CLEAR" : "RETRY", theme::text_micro, max.x - 22.f, min.y + 16.f, passed ? theme::gold : theme::danger);
+    imgui_ui::text_centered(draw, overlay_title_, theme::text_h1, {(min.x + max.x) * 0.5f, min.y + 50.f}, passed ? theme::gold : theme::danger);
+    if (passed) {
+        const float radius = 14.f + 7.f * anim;
+        imgui_ui::stars(draw, (min.x + max.x) * 0.5f, min.y + 100.f, sim_.stars(), 3,
+                        radius, 48.f, theme::gold, theme::border_strong);
+        imgui_ui::wrapped_text(draw, overlay_message_, theme::text_body_lg, {min.x + 52.f, min.y + 138.f}, 496.f, 110.f, theme::text);
     } else {
-        ui::draw_wrapped_text(window_, font_, overlay_message_, 16,
-                              {392.f, 292.f, 496.f, 120.f}, kText);
+        imgui_ui::hline(draw, min.x + 52.f, max.x - 52.f, min.y + 86.f, theme::border, 1.f);
+        imgui_ui::wrapped_text(draw, overlay_message_, theme::text_subhead, {min.x + 52.f, min.y + 112.f}, 496.f, 150.f, theme::text);
     }
-    for (const Button& button : overlay_buttons_) {
-        draw_button(button);
+
+    const std::string stats_labels[3] = {passed ? "完成拍" : "首错拍",
+                                         passed ? "评级" : "1 星窗口",
+                                         passed ? "参考解" : "状态"};
+    std::string stats_values[3];
+    if (passed) {
+        stats_values[0] = std::to_string(sim_.completion_tick());
+        stats_values[1] = std::to_string(sim_.stars()) + " 星";
+        stats_values[2] = std::to_string(level_.reference_finish) + " 拍";
+    } else {
+        stats_values[0] = sim_.first_error().has_value()
+                              ? std::to_string(sim_.first_error()->tick)
+                              : "--";
+        stats_values[1] = "≤ " + std::to_string(level_.stars.one);
+        stats_values[2] = "未完成";
     }
+    for (int i = 0; i < 3; ++i) {
+        const float x = min.x + 52.f + i * 168.f;
+        imgui_ui::text(draw, stats_labels[i], theme::text_caption, {x, min.y + 202.f}, theme::text_dim);
+        imgui_ui::text(draw, stats_values[i], theme::text_title, {x, min.y + 218.f}, theme::text);
+    }
+    imgui_ui::hline(draw, min.x + 32.f, max.x - 32.f, 430.f, theme::border, 1.f);
+    for (const Button& button : overlay_buttons_) draw_button(button);
 }
+
 
 void App::handle_event(const sf::Event& event) {
     if (event.type == sf::Event::Closed) {
         window_.close();
+        return;
+    }
+    if (event.type == sf::Event::Resized) {
+        handle_window_resize(event.size.width, event.size.height);
+        return;
+    }
+    if (event.type == sf::Event::GainedFocus || event.type == sf::Event::LostFocus) {
+        update_borderless_window_state();
+        return;
+    }
+    if (splash_active_ &&
+        (event.type == sf::Event::KeyPressed ||
+         event.type == sf::Event::MouseButtonPressed)) {
+        splash_active_ = false;
+        splash_time_ = 2.2f;
+        fade_ = 0.f;
         return;
     }
     if (event.type == sf::Event::KeyPressed) {
@@ -925,17 +1552,17 @@ void App::handle_event(const sf::Event& event) {
         return;
     }
     if (event.type == sf::Event::MouseMoved) {
-        handle_mouse_move({static_cast<float>(event.mouseMove.x),
-                           static_cast<float>(event.mouseMove.y)});
+        handle_mouse_move(to_ui({static_cast<float>(event.mouseMove.x),
+                                 static_cast<float>(event.mouseMove.y)}));
         return;
     }
     if (event.type == sf::Event::MouseButtonPressed) {
-        const sf::Vector2f point{static_cast<float>(event.mouseButton.x),
-                                 static_cast<float>(event.mouseButton.y)};
+        const sf::Vector2f point = to_ui({static_cast<float>(event.mouseButton.x),
+                                          static_cast<float>(event.mouseButton.y)});
         if (event.mouseButton.button == sf::Mouse::Left) {
             handle_mouse_click(point);
         } else if (event.mouseButton.button == sf::Mouse::Right && screen_ == Screen::Game &&
-                   !overlay_visible_) {
+                   !overlay_visible_ && !settings_open_) {
             board_.handle_mouse_press(point, sf::Mouse::Right);
         }
         return;
@@ -947,6 +1574,12 @@ void App::handle_event(const sf::Event& event) {
 }
 
 void App::handle_key(const sf::Event::KeyEvent& key) {
+    if (settings_open_) {
+        if (key.code == sf::Keyboard::Escape) {
+            settings_open_ = false;
+        }
+        return;
+    }
     if (key.code == sf::Keyboard::M) {
         sound_.toggle_mute();
         refresh_button_labels();
@@ -997,6 +1630,15 @@ void App::handle_key(const sf::Event::KeyEvent& key) {
 
 void App::handle_mouse_move(const sf::Vector2f& point) {
     if (screen_ == Screen::Menu) {
+        if (settings_open_) {
+            for (Button& button : settings_buttons_) {
+                button.hovered = button.enabled && button.rect.contains(point);
+            }
+            bool hand = false;
+            for (const Button& button : settings_buttons_) hand = hand || button.hovered;
+            update_cursor(hand);
+            return;
+        }
         for (Button& button : menu_buttons_) {
             button.hovered = button.enabled && button.rect.contains(point);
         }
@@ -1046,6 +1688,41 @@ void App::handle_mouse_move(const sf::Vector2f& point) {
 
 void App::handle_mouse_click(const sf::Vector2f& point) {
     if (screen_ == Screen::Menu) {
+        if (settings_open_) {
+            for (int i = 0; i < static_cast<int>(settings_buttons_.size()); ++i) {
+                if (!settings_buttons_[i].hit(point)) {
+                    continue;
+                }
+                sound_.play_click();
+                if (i < 2) {
+                    const DisplayMode modes[2] = {DisplayMode::Windowed,
+                                                  DisplayMode::Borderless};
+                    settings_.display_mode = modes[i];
+                    restart_required_ = true;
+                    save_settings();
+                } else if (i < 6) {
+                    const int sizes[4][2] = {{1280, 720}, {1600, 900},
+                                             {1920, 1080}, {2560, 1440}};
+                    const int idx = i - 2;
+                    settings_.window_width = sizes[idx][0];
+                    settings_.window_height = sizes[idx][1];
+                    restart_required_ = true;
+                    save_settings();
+                } else if (i == 6) {
+                    settings_.splash_enabled = !settings_.splash_enabled;
+                    save_settings();
+                } else if (i == 7) {
+                    settings_ = AppSettings{};
+                    restart_required_ = true;
+                    save_settings();
+                } else {
+                    settings_open_ = false;
+                }
+                rebuild_settings_buttons();
+                return;
+            }
+            return;
+        }
         for (int i = 0; i < static_cast<int>(menu_buttons_.size()); ++i) {
             if (!menu_buttons_[i].hit(point)) {
                 continue;
@@ -1063,6 +1740,8 @@ void App::handle_mouse_click(const sf::Vector2f& point) {
                 sound_.toggle_mute();
                 refresh_button_labels();
             } else if (i == 3) {
+                settings_open_ = true;
+            } else if (i == 4) {
                 window_.close();
             }
             return;
@@ -1169,6 +1848,9 @@ void App::handle_mouse_click(const sf::Vector2f& point) {
 }
 
 void App::handle_mouse_release() {
+    if (settings_open_) {
+        return;
+    }
     board_.handle_mouse_release();
 }
 

@@ -1,5 +1,6 @@
 #include "app/board_view.h"
 
+#include "app/theme.h"
 #include "app/ui_draw.h"
 #include "core/component_rules.h"
 
@@ -10,19 +11,15 @@ namespace river {
 
 namespace {
 
-const sf::Color kBg(9, 13, 22);
-const sf::Color kGrid(28, 38, 59);
-const sf::Color kLow(36, 59, 107);
-const sf::Color kHigh(255, 184, 56);
-const sf::Color kGlitch(255, 46, 46);
-const sf::Color kGate(41, 51, 77);
-const sf::Color kText(217, 230, 255);
-const sf::Color kInPort(140, 191, 255);
-const sf::Color kOutPort(255, 199, 77);
-
 sf::FloatRect grow(const sf::FloatRect& rect, float amount) {
     return {rect.left + amount, rect.top + amount, rect.width - amount * 2.f,
             rect.height - amount * 2.f};
+}
+
+sf::Color gate_accent(const std::string& type) {
+    if (type == "not") return theme::gold;
+    if (type == "or") return theme::teal;
+    return theme::blue;
 }
 
 }  // namespace
@@ -32,6 +29,8 @@ void BoardView::set_graph(CircuitGraph* graph) {
     drawing_ = false;
     last_is_component_ = false;
     hover_ = {-1, -1};
+    pulse_ = 0.f;
+    last_frame_tick_ = -2;
 }
 
 void BoardView::set_frame(const TickFrame* frame) {
@@ -40,7 +39,18 @@ void BoardView::set_frame(const TickFrame* frame) {
     if (frame != nullptr) {
         frame_values_ = frame->values;
         frame_glitched_ = frame->glitched;
+        if (frame->tick != last_frame_tick_) {
+            last_frame_tick_ = frame->tick;
+            pulse_ = 1.f;
+        }
+    } else {
+        pulse_ = 0.f;
+        last_frame_tick_ = -2;
     }
+}
+
+void BoardView::update(float dt) {
+    pulse_ = std::max(0.f, pulse_ - dt * 5.5f);
 }
 
 void BoardView::set_error(const std::optional<ErrorInfo>& error) {
@@ -237,73 +247,108 @@ void BoardView::draw(sf::RenderTarget& target, const sf::Font& font) const {
         return;
     }
     const sf::FloatRect board = board_rect();
-    ui::fill_rect(target, board, kBg);
+    ui::fill_rect(target, board, theme::board_bg);
 
     for (int y = 0; y < graph_->height; ++y) {
         for (int x = 0; x < graph_->width; ++x) {
-            const sf::FloatRect cell_rect(origin_.x + x * cell_size, origin_.y + y * cell_size,
-                                          static_cast<float>(cell_size), static_cast<float>(cell_size));
-            ui::outline_rect(target, cell_rect, kGrid, 1.f);
+            const sf::FloatRect cell_rect(origin_.x + x * cell_size,
+                                           origin_.y + y * cell_size,
+                                           static_cast<float>(cell_size),
+                                           static_cast<float>(cell_size));
+            const bool alternate = ((x + y) & 1) == 0;
+            ui::fill_rect(target, cell_rect,
+                          alternate ? theme::board_cell : theme::board_bg);
+            ui::outline_rect(target, cell_rect, theme::board_grid, 1.f);
         }
     }
-    ui::outline_rect(target, board, sf::Color(51, 77, 128), 2.f);
 
     if (hover_.x >= 0 && graph_->in_bounds(hover_) && editable_) {
         const sf::FloatRect hover_rect(origin_.x + hover_.x * cell_size,
                                        origin_.y + hover_.y * cell_size,
-                                       static_cast<float>(cell_size), static_cast<float>(cell_size));
+                                       static_cast<float>(cell_size),
+                                       static_cast<float>(cell_size));
         if (graph_->is_empty(hover_)) {
-            ui::fill_rect(target, grow(hover_rect, 2.f), sf::Color(153, 204, 255, 30));
+            ui::fill_rect(target, grow(hover_rect, 2.f), sf::Color(theme::teal.r,
+                                                                   theme::teal.g,
+                                                                   theme::teal.b, 24));
+            ui::outline_rect(target, grow(hover_rect, 2.f), theme::teal, 1.f);
         } else {
-            ui::fill_rect(target, grow(hover_rect, 2.f), sf::Color(255, 77, 77, 26));
+            ui::fill_rect(target, grow(hover_rect, 2.f), sf::Color(theme::danger.r,
+                                                                   theme::danger.g,
+                                                                   theme::danger.b, 18));
         }
     }
 
-    for (const auto& [uid, inst] : graph_->instances) {
-        (void)uid;
-        if (!inst.is_wire()) {
-            draw_component(target, font, inst);
-        }
-    }
     for (const auto& [uid, inst] : graph_->instances) {
         (void)uid;
         if (inst.is_wire()) {
             draw_wire(target, font, inst);
         }
     }
+    for (const auto& [uid, inst] : graph_->instances) {
+        (void)uid;
+        if (!inst.is_wire()) {
+            draw_component(target, font, inst);
+        }
+    }
+
+    if (drawing_ && graph_->in_bounds(last_cell_) && graph_->in_bounds(hover_)) {
+        const sf::FloatRect last_rect(origin_.x + last_cell_.x * cell_size,
+                                      origin_.y + last_cell_.y * cell_size,
+                                      static_cast<float>(cell_size),
+                                      static_cast<float>(cell_size));
+        ui::outline_rect(target, grow(last_rect, 2.f), theme::teal, 1.f);
+        const int distance = std::abs(hover_.x - last_cell_.x) +
+                             std::abs(hover_.y - last_cell_.y);
+        if (distance == 1) {
+            const sf::Vector2f a{last_rect.left + last_rect.width * 0.5f,
+                                 last_rect.top + last_rect.height * 0.5f};
+            const sf::Vector2f b{origin_.x + hover_.x * cell_size +
+                                     static_cast<float>(cell_size) * 0.5f,
+                                 origin_.y + hover_.y * cell_size +
+                                     static_cast<float>(cell_size) * 0.5f};
+            ui::draw_line(target, a, b, sf::Color(theme::teal.r, theme::teal.g,
+                                                   theme::teal.b, 140), 2.f);
+        }
+    }
+
+    ui::outline_rect(target, board, theme::border_strong, 1.f);
 }
 
-void BoardView::draw_wire(sf::RenderTarget& target, const sf::Font& font, const Instance& inst) const {
+void BoardView::draw_wire(sf::RenderTarget& target, const sf::Font& font,
+                          const Instance& inst) const {
     (void)font;
     const sf::FloatRect cell_rect(origin_.x + inst.origin.x * cell_size,
                                   origin_.y + inst.origin.y * cell_size,
-                                  static_cast<float>(cell_size), static_cast<float>(cell_size));
+                                  static_cast<float>(cell_size),
+                                  static_cast<float>(cell_size));
     const auto value_it = frame_values_.find(inst.uid);
     const int value = value_it == frame_values_.end() ? 0 : value_it->second;
     const bool glitch = std::find(frame_glitched_.begin(), frame_glitched_.end(), inst.uid) !=
                         frame_glitched_.end();
 
-    sf::Color color = value == 1 ? kHigh : kLow;
+    sf::Color fill = value == 1 ? theme::wire_high : theme::wire_low;
+    sf::Color border = value == 1 ? theme::gold_bright : theme::border_strong;
     if (glitch) {
-        color = kGlitch;
+        fill = theme::danger;
+        border = sf::Color(255, 154, 154);
+    } else if (value == 1 && pulse_ > 0.f) {
+        fill = ui::mix(fill, sf::Color(255, 246, 220), 0.12f * pulse_);
     }
-    if (value == 1 && !glitch) {
-        ui::fill_circle(target, {cell_rect.left + cell_rect.width * 0.5f,
-                                 cell_rect.top + cell_rect.height * 0.5f},
-                        15.f, sf::Color(255, 184, 51, 31));
-    }
-    const sf::FloatRect body = grow(cell_rect, 9.f);
-    ui::fill_rect(target, body, color);
-    ui::fill_circle(target, {cell_rect.left + cell_rect.width * 0.5f,
-                             cell_rect.top + cell_rect.height * 0.5f},
-                    6.f, ui::mix(color, sf::Color::White, 0.22f));
 
+    const sf::FloatRect body = grow(cell_rect, 2.f);
+    ui::draw_rounded_rect(target, body, theme::radius_sm, fill, border, 1.f);
+
+    const sf::Vector2f center{cell_rect.left + cell_rect.width * 0.5f,
+                              cell_rect.top + cell_rect.height * 0.5f};
+    const sf::Color arrow = value == 1 ? sf::Color(84, 61, 22) : theme::text_dim;
     if (inst.flow_dir != Vec2i{0, 0}) {
-        const sf::Vector2f center{cell_rect.left + cell_rect.width * 0.5f,
-                                  cell_rect.top + cell_rect.height * 0.5f};
-        const sf::Vector2f end{center.x + inst.flow_dir.x * cell_size * 0.26f,
-                               center.y + inst.flow_dir.y * cell_size * 0.26f};
-        ui::draw_line(target, center, end, sf::Color(5, 8, 13, 140), 3.f);
+        const sf::Vector2f end{center.x + inst.flow_dir.x * cell_size * 0.30f,
+                               center.y + inst.flow_dir.y * cell_size * 0.30f};
+        ui::draw_line(target, center, end, arrow, 3.f);
+        ui::fill_circle(target, center, 2.2f, arrow);
+    } else {
+        ui::fill_circle(target, center, 2.2f, arrow);
     }
 }
 
@@ -311,26 +356,32 @@ void BoardView::draw_component(sf::RenderTarget& target, const sf::Font& font,
                                const Instance& inst) const {
     const sf::FloatRect cell_rect(origin_.x + inst.origin.x * cell_size,
                                   origin_.y + inst.origin.y * cell_size,
-                                  static_cast<float>(cell_size), static_cast<float>(cell_size));
-    sf::Color fill = kGate;
-    if (inst.type == "source") {
-        fill = sf::Color(36, 66, 107);
-    } else if (inst.type == "target") {
-        fill = sf::Color(36, 56, 87);
-    }
+                                  static_cast<float>(cell_size),
+                                  static_cast<float>(cell_size));
     const auto value_it = frame_values_.find(inst.uid);
-    if (value_it != frame_values_.end() && value_it->second == 1) {
-        fill = ui::mix(fill, sf::Color::White, 0.18f);
+    const int value = value_it == frame_values_.end() ? 0 : value_it->second;
+    const sf::Color accent = gate_accent(inst.type);
+    sf::Color fill = theme::surface_alt;
+    sf::Color border = accent;
+    if (inst.type == "source") {
+        fill = sf::Color(25, 38, 54);
+        border = theme::gold;
+    } else if (inst.type == "target") {
+        fill = sf::Color(20, 38, 38);
+        border = theme::teal;
+    }
+    if (value == 1) {
+        fill = ui::mix(fill, accent, 0.12f + 0.10f * pulse_);
+    }
+    if (inst.uid == error_target_uid_) {
+        border = theme::danger;
+        fill = ui::mix(fill, theme::danger, 0.10f);
     }
 
     const sf::FloatRect body = grow(cell_rect, 6.f);
-    ui::fill_rect(target, body, fill);
-
-    sf::Color border = inst.is_preset ? sf::Color(140, 184, 255) : sf::Color(107, 148, 230);
-    if (inst.uid == error_target_uid_) {
-        border = sf::Color(255, 51, 51);
-    }
-    ui::outline_rect(target, body, border, 2.f);
+    ui::draw_rounded_rect(target, body, theme::radius_sm, fill, border, 1.5f);
+    ui::fill_rect(target, {body.left + 1.f, body.top + 1.f, body.width - 2.f, 2.f},
+                  accent);
 
     std::string label;
     if (inst.type == "source") label = "S";
@@ -339,14 +390,22 @@ void BoardView::draw_component(sf::RenderTarget& target, const sf::Font& font,
     else if (inst.type == "or") label = "OR";
     else if (inst.type == "not") label = "NOT";
     if (!label.empty()) {
-        const unsigned size = label.size() <= 1 ? 15 : 12;
-        ui::draw_text_centered(target, font, label, size, body, kText);
+        const unsigned size = static_cast<unsigned>(label.size() <= 1 ? theme::text_title : theme::text_label);
+        ui::draw_text_centered(target, font, label, size, body,
+                              inst.uid == error_target_uid_ ? theme::danger : theme::text);
     }
 
     if (inst.type == "target") {
-        const sf::Color dot = inst.uid == error_target_uid_ ? sf::Color(255, 64, 64)
-                                                            : sf::Color(255, 204, 77);
-        ui::fill_circle(target, {body.left + body.width - 12.f, body.top + 12.f}, 6.f, dot);
+        if (inst.uid == error_target_uid_) {
+            const sf::Vector2f p{body.left + body.width - 11.f, body.top + 11.f};
+            ui::draw_line(target, {p.x - 4.f, p.y - 4.f}, {p.x + 4.f, p.y + 4.f},
+                          theme::danger, 2.f);
+            ui::draw_line(target, {p.x + 4.f, p.y - 4.f}, {p.x - 4.f, p.y + 4.f},
+                          theme::danger, 2.f);
+        } else {
+            ui::fill_circle(target, {body.left + body.width - 10.f, body.top + 10.f}, 2.5f,
+                            theme::teal);
+        }
     }
 
     draw_ports(target, inst, cell_rect);
@@ -356,19 +415,26 @@ void BoardView::draw_ports(sf::RenderTarget& target, const Instance& inst,
                            const sf::FloatRect& rect) const {
     const float cx = rect.left + rect.width * 0.5f;
     const float cy = rect.top + rect.height * 0.5f;
-    const float s = 6.f;
+    const float s = 5.f;
+    const sf::Color in = theme::teal;
+    const sf::Color out = theme::gold;
+
+    auto port = [&target](const sf::FloatRect& r, sf::Color color) {
+        ui::fill_rect(target, r, color);
+        ui::outline_rect(target, r, theme::bg, 1.f);
+    };
 
     if (inst.type == "source") {
-        ui::fill_rect(target, {rect.left + rect.width - 5.f, cy - s * 0.5f, 5.f, s}, kOutPort);
+        port({rect.left + rect.width - 4.f, cy - s * 0.5f, 4.f, s}, out);
     } else if (inst.type == "target") {
-        ui::fill_rect(target, {rect.left, cy - s * 0.5f, 5.f, s}, kInPort);
+        port({rect.left, cy - s * 0.5f, 4.f, s}, in);
     } else if (inst.type == "not") {
-        ui::fill_rect(target, {rect.left, cy - s * 0.5f, 5.f, s}, kInPort);
-        ui::fill_rect(target, {rect.left + rect.width - 5.f, cy - s * 0.5f, 5.f, s}, kOutPort);
+        port({rect.left, cy - s * 0.5f, 4.f, s}, in);
+        port({rect.left + rect.width - 4.f, cy - s * 0.5f, 4.f, s}, out);
     } else if (inst.type == "and" || inst.type == "or") {
-        ui::fill_rect(target, {rect.left, cy - s * 0.5f, 5.f, s}, kInPort);
-        ui::fill_rect(target, {cx - s * 0.5f, rect.top + rect.height - 5.f, s, 5.f}, kInPort);
-        ui::fill_rect(target, {rect.left + rect.width - 5.f, cy - s * 0.5f, 5.f, s}, kOutPort);
+        port({rect.left, cy - s * 0.5f, 4.f, s}, in);
+        port({cx - s * 0.5f, rect.top + rect.height - 4.f, s, 4.f}, in);
+        port({rect.left + rect.width - 4.f, cy - s * 0.5f, 4.f, s}, out);
     }
 }
 

@@ -4,8 +4,8 @@
 
 ## 1. 结论
 
-- 新版本：**独立 C++20 + SFML 2.6.1 程序**，自绘全部 UI。
-- 产物：`build\RiverOfLamps.exe`（约 5.2 MB），双击即可运行。
+- 新版本：**独立 C++20 + SFML 2.6.1 + Dear ImGui 1.89.9（ImGui-SFML 2.6.1）程序**，界面由 ImGui 渲染，棋盘由 SFML 绘制。
+- 产物：`build\RiverOfLamps.exe`（约 6.1 MB），双击即可运行。
 - **不依赖 Godot 编辑器、Godot 运行时或 GDExtension**。
 - 静态链接 SFML 与 MinGW 运行库；exe 只导入 Windows 系统 DLL（KERNEL32 / USER32 / GDI32 / OPENGL32 / WINMM / ADVAPI32 / msvcrt）。
 - 旧 GDScript 工程已移除；保留 `docs/`、`概要.txt`、关卡数据与 `docs/screenshots/` 作为历史参照。
@@ -28,14 +28,15 @@ GDExtension 的产物是 Godot 加载的动态库，仍然需要一个 Godot 可
   - `-G "MinGW Makefiles"`。
 - 本项目沿用同一套编译器/CMake/SFML，并从同一本地依赖包取 **静态库**，这样不需要带一排 SFML DLL，能做成单 exe。
 - 没有引入 EnTT：本作规模不需要 ECS。
-- 没有引入 Dear ImGui：界面元素少，直接用 SFML 的矩形、圆、文字自绘，减少依赖。
+- UI 层使用 Dear ImGui 1.89.9 + ImGui-SFML 2.6.1（源码内置、MIT、静态编译），用于 draw list、字体图集和统一主题；
+  棋盘/灯槽等游戏特定视觉仍由 SFML 绘制，交互命中仍走原有 SFML 层。选用原因见 `docs/design/decisions.md` C22。
 
 取舍：
 
 | 选择 | 好处 | 代价 |
 |---|---|---|
-| SFML 2.6.1 静态链接 | 与 jyfactorio 同栈；单 exe；2D 图形/字体/窗口足够 | SFML 2.6 较旧；静态链接不可再替换 DLL；exe 约 5 MB |
-| 自绘 UI | 无 ImGui 依赖；风格统一 | 按钮/换行/浮层要自己写（本项目已实现） |
+| SFML 2.6.1 静态链接 | 与 jyfactorio 同栈；单 exe；2D 图形/字体/窗口足够 | SFML 2.6 较旧；静态链接不可再替换 DLL；exe 约 6 MB |
+| Dear ImGui + ImGui-SFML | 成熟控件/字体/抗锯齿绘制；源码内置、MIT；无运行时 DLL | 增加约 1 MB 静态库；需在 CMake 增加 `river_imgui` |
 | MinGW-w64 | 本机现成；静态编译简单 | 不能用 vendored 的 MinGW `.a` 直接喂给 MSVC |
 | 嵌入 JSON/字体 | 单 exe 可直接跑 | 关卡/文案改动后需要重新生成嵌入资源 |
 
@@ -94,8 +95,10 @@ ctest --test-dir build --output-on-failure
 | 依赖 | 位置 | 说明 |
 |---|---|---|
 | SFML 2.6.1（graphics/window/system + freetype + sfml-main） | `cpp/third_party/SFML-2.6.1/{include,lib}` | 从 `jyfactorio/factory-td/deps/local2/SFML-2.6.1` 复制；静态库 `.a`；保留 `license.md` |
+| Dear ImGui 1.89.9 | `cpp/third_party/imgui/` | 源码内置；MIT；UI draw list/字体图集 |
+| ImGui-SFML 2.6.1 | `cpp/third_party/imgui-sfml/` | 源码内置；MIT；SFML 2.5+ 后端 |
 | nlohmann/json | `cpp/third_party/nlohmann/json.hpp` | 单头文件；MIT，见同目录 `LICENSE.MIT` |
-| Noto Sans SC 子集 | `cpp/third_party/fonts/NotoSansSC-subset.ttf` | 由系统 `NotoSansSC-VF.ttf` 实例化+子集化，SIL OFL 1.1，见 `OFL.txt`；嵌入 exe |
+| Sarasa UI SC 子集（Regular/SemiBold/Bold） | `cpp/third_party/fonts/SarasaUiSC-*-subset.ttf` | 从 Sarasa UI SC 1.0.43 子集化；SIL OFL 1.1，见 `OFL-SarasaGothic.txt`；嵌入 exe |
 | MinGW 运行库 | 静态链接 | `-static -static-libgcc -static-libstdc++` |
 
 没有使用 vcpkg manifest；`jyfactorio` 虽然带 `vcpkg.json`，但实际构建走 `deps/local2` 本地包，本项目采用同样策略，保证离线可构建。
@@ -110,8 +113,8 @@ ctest --test-dir build --output-on-failure
   - 生成结果：`cpp/src/generated/embedded_json.cpp`
 - 字体：
   - `python cpp/tools/make_font.py`
-  - 从 `C:/Windows/Fonts/NotoSansSC-VF.ttf` 取字符集，实例化 wght=500，子集化，
-  - 生成 `cpp/src/generated/embedded_font.cpp` 与 `cpp/third_party/fonts/NotoSansSC-subset.ttf`。
+  - 从 Sarasa UI SC 静态字重取字符集，分别生成正文/标题/展示子集，
+  - 生成 `cpp/src/generated/embedded_font.cpp` 与 `cpp/third_party/fonts/SarasaUiSC-*-subset.ttf`。
 - 运行时优先读取**外部数据**，找不到再用嵌入数据：
   - 外部目录候选：`data/levels`（相对 exe 目录、exe 上级、当前目录、当前目录上级）；
   - 元件 JSON：`data/levels/elements.json`、`data/elements/elements.json`。
@@ -119,6 +122,14 @@ ctest --test-dir build --output-on-failure
 - 因为数据是“构建时嵌入 + 运行时外部优先”，既满足“继续读取 data/levels”的要求，也能做到把 exe 单独拷走就能运行。
 
 **进度存档**：`%APPDATA%\RiverOfLamps\progress.json`（与旧 Godot 的 `user://` 分开，互不污染）。
+
+**显示设置**：`%APPDATA%\RiverOfLamps\settings.json`（窗口/无边框全屏、窗口分辨率、启动动画开关）；
+显示模式与分辨率在设置面板中立即保存，但重启后应用。界面保持 1280×720 设计坐标，
+按实际窗口做 `DisplayFramebufferScale` 缩放，鼠标坐标反算，见 `docs/design/decisions.md` C23/C24/C25。
+独占全屏已移除：SFML 2.6.1 的 `WindowImplWin32::switchToFullscreen` 使用
+`ChangeDisplaySettingsW(..., CDS_FULLSCREEN)`，在 Windows/DWM 下会闪黑屏；无边框全屏不切换显示模式。
+无边框窗口取桌面尺寸 − 2px，避免恰好铺满触发 DirectFlip/MPO；有焦点时临时 TOPMOST，失焦恢复，
+并在进程启动时 `ImmDisableIME`。
 
 > 实际仓库路径说明：你消息里写的是 `scripts/main.gd`、`data/levels`、`docs/outline.md`；
 > 迁移时旧代码实际在 `game/main.gd`、`game/data/levels`、`docs/design/outline.md`。
@@ -147,7 +158,7 @@ ctest --test-dir build --output-on-failure
 | 门 0 延迟；灯槽每格 1 拍；门链不误报 | 完成 |
 | 组合环不收敛检测（迭代上限 16） | 完成（结构已移植；现有固定朝向关卡不产生门级环） |
 | 目标逐拍比对、首错拍、期望/实际 | 完成 |
-| 5 关加载、参考解、6/3/4/4/6 拍 3 星通关 | 完成 |
+| 5 关加载、参考解、6/3/2/4/6 拍 3 星通关 | 完成 |
 | 拍数窗口与 1–3 星评级、每关最高星级存档 | 完成 |
 | 波形面板 | 完成 |
 | 进度存档/重置 | 完成（新路径见下） |
@@ -193,7 +204,7 @@ ALL TESTS PASSED（40 条原断言 + 星级窗口/边界/进度断言）
 ```
 
 - 原 40 条：灯槽延迟（3）、非门+脉冲（3）、与门对齐（3）、或门序列（5）、首错拍（5）、零延迟门链（4）、连线校验（2）、5 关加载/校验/通关（15）。
-- 5 关参考解现在必须拿到 **3 星**，完成拍为 **6 / 3 / 4 / 4 / 6**；第 2 关「倒影」是非门教学，不再使用第 1 关的直连解法。
+- 5 关参考解现在必须拿到 **3 星**，完成拍为 **6 / 3 / 2 / 4 / 6**；第 2 关「倒影」是非门教学，不再使用第 1 关的直连解法。
 - 额外边界断言：刚好 3 星、刚好 2 星、超过 2 星线但仍在窗口内拿 1 星、窗口内无匹配失败且保留首错拍。
 - 进度断言：最高星级保存/读档、重置删除存档。
 - `ctest --test-dir build --output-on-failure` 同样通过。
@@ -240,7 +251,7 @@ ALL TESTS PASSED（40 条原断言 + 星级窗口/边界/进度断言）
 
 - 迁移前 Godot GDScript 原版：`ALL TESTS PASSED`（Godot 4.7.2，历史记录）。
 - C++ 版：`ALL TESTS PASSED（40 条原断言 + 星级窗口/边界/进度断言）`；5 关参考解均为 3 星，
-  完成拍为 **6 / 3 / 4 / 4 / 6**（L2 从旧的 4 拍改为非门教学 3 拍）。
+  完成拍为 **6 / 3 / 2 / 4 / 6**（L2 从旧的 4 拍改为非门教学 3 拍）。
 - 单文件检查：`objdump -p build\RiverOfLamps.exe` 只列出系统 DLL，无 `sfml-*.dll`。
 - 把 exe 单独复制到空临时目录（无 `data/levels`）运行：菜单、字体、5 关卡片正常，说明嵌入 JSON/字体生效。
 - 截图：`cpp/screenshots/01_menu.png`、`02_game.png`、`03_pass.png`、`04_fail.png`、`05_level5.png`、`06_level2_not.png`、`07_two_star.png`。
